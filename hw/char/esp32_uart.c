@@ -289,6 +289,19 @@ static int uart_can_receive(void *opaque)
     return fifo8_num_free(&s->rx_fifo);
 }
 
+int esp32_uart_receive_bytes(ESP32UARTState *s, const uint8_t *buf, int size)
+{
+    int accepted;
+
+    if (!s || !buf || size <= 0) {
+        return 0;
+    }
+
+    accepted = MIN(size, uart_can_receive(s));
+    uart_receive(s, buf, accepted);
+    return accepted;
+}
+
 static void uart_event(void *opaque, QEMUChrEvent event)
 {
     /* TODO: handle UART break */

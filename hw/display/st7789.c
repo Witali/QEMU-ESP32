@@ -12,6 +12,8 @@
 #include "qemu/osdep.h"
 #include "hw/irq.h"
 #include "hw/ssi/ssi.h"
+#include "hw/char/esp32_uart.h"
+#include "hw/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "qemu/module.h"
 #include "ui/console.h"
@@ -59,6 +61,7 @@ struct ST7789State {
     QemuInputHandlerState *input;
     qemu_irq reset_button;
     qemu_irq boot_button;
+    ESP32UARTState *keyboard_uart;
 
     uint8_t command;
     uint8_t argument[4];
@@ -78,6 +81,11 @@ struct ST7789State {
     bool reset_pressed;
     bool boot_pressed;
     bool emulate_boot_hold;
+    bool shift_left;
+    bool shift_right;
+    bool ctrl_left;
+    bool ctrl_right;
+    bool caps_lock;
     int pointer_x;
     int pointer_y;
 
@@ -108,6 +116,9 @@ static void st7789_reset_state(ST7789State *s, bool clear_framebuffer)
     s->column_end = ST7789_WIDTH - 1;
     s->row_start = 0;
     s->row_end = ST7789_HEIGHT - 1;
+    s->shift_left = s->shift_right = false;
+    s->ctrl_left = s->ctrl_right = false;
+    s->caps_lock = false;
     if (clear_framebuffer) {
         memset(s->framebuffer, 0, sizeof(s->framebuffer));
     }
@@ -634,6 +645,158 @@ static bool st7789_hold_contains(int x, int y)
            y >= ST7789_HOLD_Y && y < ST7789_HOLD_Y + ST7789_CHECK_SIZE;
 }
 
+typedef struct ST7789KeyAscii {
+    QKeyCode qcode;
+    uint8_t normal;
+    uint8_t shifted;
+} ST7789KeyAscii;
+
+static const ST7789KeyAscii st7789_ascii_keys[] = {
+    { Q_KEY_CODE_1, '1', '!' }, { Q_KEY_CODE_2, '2', '@' },
+    { Q_KEY_CODE_3, '3', '#' }, { Q_KEY_CODE_4, '4', '$' },
+    { Q_KEY_CODE_5, '5', '%' }, { Q_KEY_CODE_6, '6', '^' },
+    { Q_KEY_CODE_7, '7', '&' }, { Q_KEY_CODE_8, '8', '*' },
+    { Q_KEY_CODE_9, '9', '(' }, { Q_KEY_CODE_0, '0', ')' },
+    { Q_KEY_CODE_MINUS, '-', '_' }, { Q_KEY_CODE_EQUAL, '=', '+' },
+    { Q_KEY_CODE_BRACKET_LEFT, '[', '{' },
+    { Q_KEY_CODE_BRACKET_RIGHT, ']', '}' },
+    { Q_KEY_CODE_SEMICOLON, ';', ':' },
+    { Q_KEY_CODE_APOSTROPHE, '\'', '"' },
+    { Q_KEY_CODE_GRAVE_ACCENT, '`', '~' },
+    { Q_KEY_CODE_BACKSLASH, '\\', '|' },
+    { Q_KEY_CODE_COMMA, ',', '<' }, { Q_KEY_CODE_DOT, '.', '>' },
+    { Q_KEY_CODE_SLASH, '/', '?' },
+};
+
+static const ST7789KeyAscii st7789_letter_keys[] = {
+    { Q_KEY_CODE_A, 'a', 'A' }, { Q_KEY_CODE_B, 'b', 'B' },
+    { Q_KEY_CODE_C, 'c', 'C' }, { Q_KEY_CODE_D, 'd', 'D' },
+    { Q_KEY_CODE_E, 'e', 'E' }, { Q_KEY_CODE_F, 'f', 'F' },
+    { Q_KEY_CODE_G, 'g', 'G' }, { Q_KEY_CODE_H, 'h', 'H' },
+    { Q_KEY_CODE_I, 'i', 'I' }, { Q_KEY_CODE_J, 'j', 'J' },
+    { Q_KEY_CODE_K, 'k', 'K' }, { Q_KEY_CODE_L, 'l', 'L' },
+    { Q_KEY_CODE_M, 'm', 'M' }, { Q_KEY_CODE_N, 'n', 'N' },
+    { Q_KEY_CODE_O, 'o', 'O' }, { Q_KEY_CODE_P, 'p', 'P' },
+    { Q_KEY_CODE_Q, 'q', 'Q' }, { Q_KEY_CODE_R, 'r', 'R' },
+    { Q_KEY_CODE_S, 's', 'S' }, { Q_KEY_CODE_T, 't', 'T' },
+    { Q_KEY_CODE_U, 'u', 'U' }, { Q_KEY_CODE_V, 'v', 'V' },
+    { Q_KEY_CODE_W, 'w', 'W' }, { Q_KEY_CODE_X, 'x', 'X' },
+    { Q_KEY_CODE_Y, 'y', 'Y' }, { Q_KEY_CODE_Z, 'z', 'Z' },
+};
+
+static uint8_t st7789_lookup_ascii(const ST7789KeyAscii *keys,
+                                   size_t count, QKeyCode qcode,
+                                   bool shifted)
+{
+    size_t i;
+
+    for (i = 0; i < count; i++) {
+        if (keys[i].qcode == qcode) {
+            return shifted ? keys[i].shifted : keys[i].normal;
+        }
+    }
+    return 0;
+}
+
+static uint8_t st7789_key_to_ascii(ST7789State *s, QKeyCode qcode)
+{
+    bool shifted = s->shift_left || s->shift_right;
+    bool controlled = s->ctrl_left || s->ctrl_right;
+    uint8_t ascii;
+
+    ascii = st7789_lookup_ascii(st7789_letter_keys,
+                                ARRAY_SIZE(st7789_letter_keys), qcode,
+                                shifted != s->caps_lock);
+    if (ascii && controlled) {
+        return (ascii | 0x20) - 'a' + 1;
+    }
+    if (ascii) {
+        return ascii;
+    }
+    if (controlled) {
+        switch (qcode) {
+        case Q_KEY_CODE_BRACKET_LEFT: return 0x1b;
+        case Q_KEY_CODE_BACKSLASH: return 0x1c;
+        case Q_KEY_CODE_BRACKET_RIGHT: return 0x1d;
+        case Q_KEY_CODE_6: return 0x1e;
+        case Q_KEY_CODE_MINUS: return 0x1f;
+        default: return 0;
+        }
+    }
+    ascii = st7789_lookup_ascii(st7789_ascii_keys,
+                                ARRAY_SIZE(st7789_ascii_keys), qcode,
+                                shifted);
+    if (ascii) {
+        return ascii;
+    }
+    switch (qcode) {
+    case Q_KEY_CODE_SPC: return ' ';
+    case Q_KEY_CODE_RET:
+    case Q_KEY_CODE_KP_ENTER: return '\r';
+    case Q_KEY_CODE_BACKSPACE: return 0x7f;
+    case Q_KEY_CODE_TAB: return '\t';
+    case Q_KEY_CODE_KP_0: return '0';
+    case Q_KEY_CODE_KP_1: return '1';
+    case Q_KEY_CODE_KP_2: return '2';
+    case Q_KEY_CODE_KP_3: return '3';
+    case Q_KEY_CODE_KP_4: return '4';
+    case Q_KEY_CODE_KP_5: return '5';
+    case Q_KEY_CODE_KP_6: return '6';
+    case Q_KEY_CODE_KP_7: return '7';
+    case Q_KEY_CODE_KP_8: return '8';
+    case Q_KEY_CODE_KP_9: return '9';
+    case Q_KEY_CODE_KP_DECIMAL: return '.';
+    case Q_KEY_CODE_KP_ADD: return '+';
+    case Q_KEY_CODE_KP_SUBTRACT: return '-';
+    case Q_KEY_CODE_KP_MULTIPLY:
+    case Q_KEY_CODE_ASTERISK: return '*';
+    case Q_KEY_CODE_KP_DIVIDE: return '/';
+    default: return 0;
+    }
+}
+
+static void st7789_send_key_bytes(ST7789State *s, const uint8_t *bytes,
+                                  size_t count)
+{
+    if (s->keyboard_uart) {
+        esp32_uart_receive_bytes(s->keyboard_uart, bytes, count);
+    }
+}
+
+static void st7789_key_event(ST7789State *s, InputKeyEvent *key)
+{
+    QKeyCode qcode = qemu_input_key_value_to_qcode(key->key);
+    uint8_t ascii;
+
+    switch (qcode) {
+    case Q_KEY_CODE_SHIFT: s->shift_left = key->down; return;
+    case Q_KEY_CODE_SHIFT_R: s->shift_right = key->down; return;
+    case Q_KEY_CODE_CTRL: s->ctrl_left = key->down; return;
+    case Q_KEY_CODE_CTRL_R: s->ctrl_right = key->down; return;
+    case Q_KEY_CODE_CAPS_LOCK:
+        if (key->down) {
+            s->caps_lock = !s->caps_lock;
+        }
+        return;
+    default: break;
+    }
+    if (!key->down) {
+        return;
+    }
+    switch (qcode) {
+    case Q_KEY_CODE_UP: st7789_send_key_bytes(s, (uint8_t *)"\033[A", 3); return;
+    case Q_KEY_CODE_DOWN: st7789_send_key_bytes(s, (uint8_t *)"\033[B", 3); return;
+    case Q_KEY_CODE_RIGHT: st7789_send_key_bytes(s, (uint8_t *)"\033[C", 3); return;
+    case Q_KEY_CODE_LEFT: st7789_send_key_bytes(s, (uint8_t *)"\033[D", 3); return;
+    case Q_KEY_CODE_ESC: st7789_send_key_bytes(s, (uint8_t *)"\033\033", 2); return;
+    default: break;
+    }
+    ascii = st7789_key_to_ascii(s, qcode);
+    if (ascii) {
+        st7789_send_key_bytes(s, &ascii, 1);
+    }
+}
+
 static void st7789_input_event(DeviceState *device, QemuConsole *src,
                                 InputEvent *event)
 {
@@ -644,6 +807,9 @@ static void st7789_input_event(DeviceState *device, QemuConsole *src,
     }
 
     switch (event->type) {
+    case INPUT_EVENT_KIND_KEY:
+        st7789_key_event(s, event->u.key.data);
+        break;
     case INPUT_EVENT_KIND_ABS: {
         InputMoveEvent *move = event->u.abs.data;
 
@@ -704,7 +870,8 @@ static void st7789_input_event(DeviceState *device, QemuConsole *src,
 
 static const QemuInputHandler st7789_input_handler = {
     .name = "ESP32 ST7789 controls",
-    .mask = INPUT_EVENT_MASK_BTN | INPUT_EVENT_MASK_ABS,
+    .mask = INPUT_EVENT_MASK_KEY | INPUT_EVENT_MASK_BTN |
+            INPUT_EVENT_MASK_ABS,
     .event = st7789_input_event,
 };
 
@@ -751,6 +918,12 @@ static const GraphicHwOps st7789_ops = {
     .gfx_update = st7789_update_display,
 };
 
+static Property st7789_properties[] = {
+    DEFINE_PROP_LINK("keyboard-uart", ST7789State, keyboard_uart,
+                     TYPE_ESP32_UART, ESP32UARTState *),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void st7789_realize(SSIPeripheral *dev, Error **errp)
 {
     DeviceState *device = DEVICE(dev);
@@ -794,6 +967,7 @@ static void st7789_class_init(ObjectClass *klass, void *data)
     dc->unrealize = st7789_unrealize;
     device_class_set_legacy_reset(dc, st7789_reset);
     set_bit(DEVICE_CATEGORY_DISPLAY, dc->categories);
+    device_class_set_props(dc, st7789_properties);
 }
 
 static const TypeInfo st7789_info = {

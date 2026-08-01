@@ -873,7 +873,11 @@ static void esp32_machine_init_st7789(Esp32MachineState *ms)
         return;
     }
 
-    panel = ssi_create_peripheral(ss->spi[2].spi, "st7789");
+    panel = qdev_new("st7789");
+    object_property_set_link(OBJECT(panel), "keyboard-uart",
+                             OBJECT(&ss->uart[0]), &error_fatal);
+    ssi_realize_and_unref(panel, ss->spi[2].spi, &error_fatal);
+
     qdev_connect_gpio_out_named(
         DEVICE(&ss->gpio), "gpio-out", 15,
         qdev_get_gpio_in_named(panel, SSI_GPIO_CS, 0));
