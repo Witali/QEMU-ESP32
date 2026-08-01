@@ -1,0 +1,24 @@
+diff --git a/scripts/symlink-install-tree.py b/scripts/symlink-install-tree.py
+index b725638..cdb844a 100644
+--- a/scripts/symlink-install-tree.py
++++ b/scripts/symlink-install-tree.py
+@@ -5,6 +5,7 @@
+ import json
+ import os
+ import shlex
++import shutil
+ import subprocess
+ import sys
+ 
+@@ -28,6 +29,11 @@ for source, dest in json.loads(out).items():
+     try:
+         os.symlink(source, bundle_dest)
+     except BaseException as e:
++        if (isinstance(e, OSError) and os.name == 'nt'
++                and e.winerror == 1314):
++            if os.path.exists(source):
++                shutil.copy2(source, bundle_dest)
++            continue
+         if not isinstance(e, OSError) or e.errno != errno.EEXIST:
+             if os.name == 'nt':
+                 print('Please enable Developer Mode to support soft link '

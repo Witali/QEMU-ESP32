@@ -1,0 +1,246 @@
+diff --git a/hw/audio/esp32_i2s_dac.c b/hw/audio/esp32_i2s_dac.c
+index 156a46a..1c6ee40 100644
+--- a/hw/audio/esp32_i2s_dac.c
++++ b/hw/audio/esp32_i2s_dac.c
+@@ -66,6 +66,7 @@ static void esp32_i2s_dac_stop(Esp32I2sDacState *s)
+ {
+     s->link_running = false;
+     s->current_descriptor = 0;
++    s->dma_deadline_ns = 0;
+     timer_del(s->dma_timer);
+     esp32_i2s_dac_set_active(s, false);
+ }
+@@ -110,7 +111,19 @@ static void esp32_i2s_dac_schedule(Esp32I2sDacState *s,
+     const uint64_t delay = MAX(
+         1ULL,
+         (uint64_t)sample_count * NANOSECONDS_PER_SECOND / s->sample_rate);
+-    timer_mod(s->dma_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + delay);
++    const uint64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++    uint64_t deadline = s->dma_deadline_ns + delay;
++
++    /*
++     * Keep the DAC on one continuous sample clock.  Scheduling each
++     * descriptor from "now" permanently accumulated any late timer
++     * dispatch and produced audible gaps under a busy emulated SPI bus.
++     */
++    if (deadline <= now) {
++        deadline = now + 1;
++    }
++    s->dma_deadline_ns = deadline;
++    timer_mod(s->dma_timer, deadline);
+ }
+ 
+ static void esp32_i2s_dac_dma_timer(void *opaque)
+@@ -231,9 +244,9 @@ static void esp32_i2s_dac_write(void *opaque, hwaddr address,
+                 DMA_DESCRIPTOR_PREFIX | (val & I2S_OUT_LINK_ADDR_MASK);
+             s->link_running = true;
+             esp32_i2s_dac_set_active(s, true);
+-            timer_mod(
+-                s->dma_timer,
+-                qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1);
++            s->dma_deadline_ns =
++                qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1;
++            timer_mod(s->dma_timer, s->dma_deadline_ns);
+         }
+         break;
+     default:
+diff --git a/hw/display/st7789.c b/hw/display/st7789.c
+index 8803984..14a594f 100644
+--- a/hw/display/st7789.c
++++ b/hw/display/st7789.c
+@@ -263,6 +263,74 @@ static uint32_t st7789_transfer(SSIPeripheral *dev, uint32_t data)
+     return 0;
+ }
+ 
++static void st7789_transfer_buf(SSIPeripheral *dev, const uint8_t *tx,
++                                uint8_t *rx, size_t len)
++{
++    ST7789State *s = ST7789(dev);
++    size_t offset = 0;
++
++    if (rx) {
++        memset(rx, 0, len);
++    }
++
++    /*
++     * Commands and short argument transfers are rare, so preserve their
++     * byte-at-a-time behavior.  Pixel DMA is the hot path: a CIF frame sends
++     * 153600 bytes, which must not become that many QOM callback calls.
++     */
++    if (!tx || !s->dc || s->command != ST7789_CMD_RAMWR ||
++        (s->colmod & 0x77) != 0x55) {
++        while (offset < len) {
++            st7789_transfer(dev, tx ? tx[offset] : 0xff);
++            offset++;
++        }
++        return;
++    }
++
++    if (s->pixel_byte && offset < len) {
++        st7789_write_pixel_byte(s, tx[offset++]);
++    }
++
++    while (offset + 1 < len) {
++        size_t pixels = (len - offset) / 2;
++        size_t row_pixels;
++
++        if (s->column > s->column_end) {
++            s->column = s->column_start;
++        }
++        if (s->row > s->row_end) {
++            s->row = s->row_start;
++        }
++
++        row_pixels = s->column_end - s->column + 1;
++        row_pixels = MIN(row_pixels, pixels);
++
++        if (s->little_endian && s->column < ST7789_WIDTH &&
++            s->row < ST7789_HEIGHT &&
++            row_pixels <= ST7789_WIDTH - s->column) {
++            memcpy(&s->framebuffer[s->row * ST7789_WIDTH + s->column],
++                   tx + offset, row_pixels * sizeof(uint16_t));
++            s->redraw = true;
++            offset += row_pixels * sizeof(uint16_t);
++            s->column += row_pixels;
++            if (s->column > s->column_end) {
++                s->column = s->column_start;
++                s->row++;
++                if (s->row > s->row_end) {
++                    s->row = s->row_start;
++                }
++            }
++        } else {
++            st7789_write_pixel_byte(s, tx[offset++]);
++            st7789_write_pixel_byte(s, tx[offset++]);
++        }
++    }
++
++    if (offset < len) {
++        st7789_write_pixel_byte(s, tx[offset]);
++    }
++}
++
+ static uint32_t st7789_rgb_to_surface(DisplaySurface *surface,
+                                       uint8_t red, uint8_t green,
+                                       uint8_t blue)
+@@ -720,6 +788,7 @@ static void st7789_class_init(ObjectClass *klass, void *data)
+ 
+     ssi->realize = st7789_realize;
+     ssi->transfer = st7789_transfer;
++    ssi->transfer_buf = st7789_transfer_buf;
+     ssi->cs_polarity = SSI_CS_LOW;
+     dc->vmsd = &vmstate_st7789;
+     dc->unrealize = st7789_unrealize;
+diff --git a/hw/ssi/ssi.c b/hw/ssi/ssi.c
+index 16a4271..aeb798a 100644
+--- a/hw/ssi/ssi.c
++++ b/hw/ssi/ssi.c
+@@ -22,6 +22,7 @@
+ 
+ struct SSIBus {
+     BusState parent_obj;
++    uint32_t idle_value;
+ };
+ 
+ #define TYPE_SSI_BUS "SSI"
+@@ -154,18 +155,35 @@ SSIBus *ssi_create_bus(DeviceState *parent, const char *name)
+     return SSI_BUS(bus);
+ }
+ 
++void ssi_set_idle_value(SSIBus *bus, uint32_t value)
++{
++    bus->idle_value = value;
++}
++
+ uint32_t ssi_transfer(SSIBus *bus, uint32_t val)
+ {
+     BusState *b = BUS(bus);
+     BusChild *kid;
+     uint32_t r = 0;
++    bool selected = false;
+ 
+     QTAILQ_FOREACH(kid, &b->children, sibling) {
+         SSIPeripheral *p = SSI_PERIPHERAL(kid->child);
++
++        /*
++         * A custom transfer_raw implementation controls chip selection
++         * itself, so it must always be given priority over the bus idle
++         * value.
++         */
++        selected |=
++            p->spc->transfer_raw != ssi_transfer_raw_default ||
++            (p->cs && p->spc->cs_polarity == SSI_CS_HIGH) ||
++            (!p->cs && p->spc->cs_polarity == SSI_CS_LOW) ||
++            p->spc->cs_polarity == SSI_CS_NONE;
+         r |= p->spc->transfer_raw(p, val);
+     }
+ 
+-    return r;
++    return selected ? r : bus->idle_value;
+ }
+ 
+ void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,
+diff --git a/hw/xtensa/esp32.c b/hw/xtensa/esp32.c
+index 4f7eef1..ea484ea 100644
+--- a/hw/xtensa/esp32.c
++++ b/hw/xtensa/esp32.c
+@@ -808,6 +808,12 @@ static void esp32_machine_init_sd(Esp32MachineState *ms)
+             DeviceState *sd_adapter;
+             SSIBus *spi_bus = ss->spi[3].spi;
+ 
++            /*
++             * The ESP32-2432S028 board pulls the SD MISO line high while
++             * GPIO5 deasserts CS.  ESP-IDF uses this state to poll whether
++             * the card is ready before issuing each command.
++             */
++            ssi_set_idle_value(spi_bus, 0xff);
+             sd_adapter = ssi_create_peripheral(spi_bus, "ssi-sd");
+             qdev_connect_gpio_out_named(
+                 DEVICE(&ss->gpio), "gpio-out", 5,
+diff --git a/hw/xtensa/esp32_intc.c b/hw/xtensa/esp32_intc.c
+index ee1fb3f..fa73581 100644
+--- a/hw/xtensa/esp32_intc.c
++++ b/hw/xtensa/esp32_intc.c
+@@ -28,6 +28,14 @@ static void esp32_intmatrix_update_output(Esp32IntMatrixState *s,
+ {
+     bool level = false;
+ 
++    /*
++     * ESP-IDF routes disabled peripheral sources to CPU interrupt 6.
++     * That number is also an internal timer interrupt and must never be
++     * driven by the external interrupt matrix.
++     */
++    if (out_index == INTMATRIX_UNINT_VALUE) {
++        return;
++    }
+     if (s->outputs[cpu_index] == NULL) {
+         return;
+     }
+diff --git a/include/hw/audio/esp32_i2s_dac.h b/include/hw/audio/esp32_i2s_dac.h
+index 89a520a..36eac20 100644
+--- a/include/hw/audio/esp32_i2s_dac.h
++++ b/include/hw/audio/esp32_i2s_dac.h
+@@ -24,6 +24,7 @@ struct Esp32I2sDacState {
+     uint32_t sample_rate;
+     uint32_t volume;
+     bool link_running;
++    uint64_t dma_deadline_ns;
+ 
+     uint8_t audio_buffer[ESP32_I2S_DAC_AUDIO_BUFFER_BYTES];
+     uint32_t audio_read;
+diff --git a/include/hw/ssi/ssi.h b/include/hw/ssi/ssi.h
+index 2ab7400..4a4aae0 100644
+--- a/include/hw/ssi/ssi.h
++++ b/include/hw/ssi/ssi.h
+@@ -117,6 +117,11 @@ bool ssi_realize_and_unref(DeviceState *dev, SSIBus *bus, Error **errp);
+ /* Master interface.  */
+ SSIBus *ssi_create_bus(DeviceState *parent, const char *name);
+ 
++/*
++ * Set the value sampled by a master while no peripheral is selected.
++ * The default is zero, preserving the upstream SSI bus behaviour.
++ */
++void ssi_set_idle_value(SSIBus *bus, uint32_t value);
+ uint32_t ssi_transfer(SSIBus *bus, uint32_t val);
+ void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,
+                       uint8_t *rx, size_t len);

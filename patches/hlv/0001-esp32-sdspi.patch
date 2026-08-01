@@ -1,0 +1,1583 @@
+diff --git a/hw/audio/esp32_analog_i2c.c b/hw/audio/esp32_analog_i2c.c
+new file mode 100644
+index 0000000..d602f09
+--- /dev/null
++++ b/hw/audio/esp32_analog_i2c.c
+@@ -0,0 +1,114 @@
++/*
++ * ESP32 internal analog I2C register bridge.
++ *
++ * The ESP32 ROM accesses BBPLL/APLL byte registers through command words in
++ * the analog peripheral.  The APLL calibration completion bit is modelled as
++ * immediate because QEMU has no analog settling time.
++ */
++
++#include "qemu/osdep.h"
++#include "hw/audio/esp32_analog_i2c.h"
++#include "qemu/bitops.h"
++#include "qemu/module.h"
++
++#define ANALOG_I2C_APLL_COMMAND  0x0c
++#define ANALOG_I2C_BBPLL_COMMAND 0x10
++#define ANALOG_I2C_WRITE         BIT(24)
++#define ANALOG_I2C_APLL_BLOCK    0x6d
++#define ANALOG_I2C_APLL_CAL_REG  3
++#define ANALOG_I2C_APLL_CAL_END  BIT(7)
++
++static bool esp32_analog_i2c_is_command(hwaddr address)
++{
++    return address == ANALOG_I2C_APLL_COMMAND ||
++           address == ANALOG_I2C_BBPLL_COMMAND;
++}
++
++static uint64_t esp32_analog_i2c_read(void *opaque, hwaddr address,
++                                      unsigned size)
++{
++    Esp32AnalogI2cState *s = opaque;
++
++    return address < sizeof(s->command)
++               ? s->command[address / sizeof(uint32_t)]
++               : 0;
++}
++
++static void esp32_analog_i2c_write(void *opaque, hwaddr address,
++                                   uint64_t value, unsigned size)
++{
++    Esp32AnalogI2cState *s = opaque;
++    const uint32_t command = value;
++
++    if (!esp32_analog_i2c_is_command(address)) {
++        return;
++    }
++
++    const uint8_t block = command;
++    const uint8_t reg = command >> 8;
++    uint8_t data = command >> 16;
++    if (reg >= sizeof(s->registers[block])) {
++        return;
++    }
++    if (command & ANALOG_I2C_WRITE) {
++        s->registers[block][reg] = data;
++    } else {
++        data = s->registers[block][reg];
++        if (block == ANALOG_I2C_APLL_BLOCK &&
++            reg == ANALOG_I2C_APLL_CAL_REG) {
++            data |= ANALOG_I2C_APLL_CAL_END;
++        }
++    }
++    s->command[address / sizeof(uint32_t)] =
++        (command & ~0x00ff0000U) | ((uint32_t)data << 16);
++}
++
++static const MemoryRegionOps esp32_analog_i2c_ops = {
++    .read = esp32_analog_i2c_read,
++    .write = esp32_analog_i2c_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .impl = {
++        .min_access_size = 4,
++        .max_access_size = 4,
++    },
++};
++
++static void esp32_analog_i2c_reset(DeviceState *dev)
++{
++    Esp32AnalogI2cState *s = ESP32_ANALOG_I2C(dev);
++
++    memset(s->command, 0, sizeof(s->command));
++    memset(s->registers, 0, sizeof(s->registers));
++}
++
++static void esp32_analog_i2c_init(Object *obj)
++{
++    Esp32AnalogI2cState *s = ESP32_ANALOG_I2C(obj);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
++
++    memory_region_init_io(&s->iomem, obj, &esp32_analog_i2c_ops, s,
++                          TYPE_ESP32_ANALOG_I2C, 0x1000);
++    sysbus_init_mmio(sbd, &s->iomem);
++}
++
++static void esp32_analog_i2c_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    device_class_set_legacy_reset(dc, esp32_analog_i2c_reset);
++}
++
++static const TypeInfo esp32_analog_i2c_info = {
++    .name = TYPE_ESP32_ANALOG_I2C,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(Esp32AnalogI2cState),
++    .instance_init = esp32_analog_i2c_init,
++    .class_init = esp32_analog_i2c_class_init,
++};
++
++static void esp32_analog_i2c_register_types(void)
++{
++    type_register_static(&esp32_analog_i2c_info);
++}
++
++type_init(esp32_analog_i2c_register_types)
+diff --git a/hw/audio/esp32_i2s_dac.c b/hw/audio/esp32_i2s_dac.c
+new file mode 100644
+index 0000000..156a46a
+--- /dev/null
++++ b/hw/audio/esp32_i2s_dac.c
+@@ -0,0 +1,359 @@
++/*
++ * ESP32 I2S0 TX DMA and built-in DAC output.
++ *
++ * This implements the register and descriptor subset used by the ESP-IDF
++ * dac_continuous driver.  GPIO26 is DAC channel 1 on the physical
++ * ESP32-2432S028 board; the I2S DMA stream contains unsigned 8-bit samples in
++ * the high byte of each 16-bit word.
++ */
++
++#include "qemu/osdep.h"
++#include "audio/audio.h"
++#include "exec/address-spaces.h"
++#include "hw/audio/esp32_i2s_dac.h"
++#include "hw/irq.h"
++#include "hw/qdev-properties.h"
++#include "qapi/error.h"
++#include "qemu/bitops.h"
++#include "qemu/log.h"
++#include "qemu/module.h"
++#include "qemu/timer.h"
++
++#define I2S_CONF_REG               0x08
++#define I2S_INT_RAW_REG            0x0c
++#define I2S_INT_ST_REG             0x10
++#define I2S_INT_ENA_REG            0x14
++#define I2S_INT_CLR_REG            0x18
++#define I2S_OUT_LINK_REG           0x30
++#define I2S_OUT_EOF_DES_ADDR_REG   0x38
++#define I2S_LC_CONF_REG            0x60
++
++#define I2S_CONF_TX_RESET          BIT(0)
++#define I2S_CONF_TX_START          BIT(4)
++#define I2S_INT_OUT_EOF            BIT(12)
++#define I2S_INT_OUT_DSCR_ERR       BIT(14)
++#define I2S_INT_OUT_TOTAL_EOF      BIT(16)
++#define I2S_OUT_LINK_ADDR_MASK     0x000fffffU
++#define I2S_OUT_LINK_STOP          BIT(28)
++#define I2S_OUT_LINK_START         BIT(29)
++#define I2S_OUT_LINK_PARK          BIT(31)
++#define I2S_LC_OUT_RESET           BIT(1)
++#define I2S_LC_OUT_AUTO_WRBACK     BIT(6)
++#define I2S_LC_CHECK_OWNER         BIT(12)
++
++#define DMA_DESCRIPTOR_PREFIX      0x3ff00000U
++#define DMA_DESCRIPTOR_MAX_BYTES   4092U
++#define DMA_DESCRIPTOR_SIZE_MASK   0x00000fffU
++#define DMA_DESCRIPTOR_LENGTH_MASK 0x00fff000U
++#define DMA_DESCRIPTOR_LENGTH_SHIFT 12
++#define DMA_DESCRIPTOR_OWNER       BIT(31)
++
++static void esp32_i2s_dac_update_irq(Esp32I2sDacState *s)
++{
++    const uint32_t status =
++        s->regs[I2S_INT_RAW_REG / 4] & s->regs[I2S_INT_ENA_REG / 4];
++    qemu_set_irq(s->irq, status != 0);
++}
++
++static void esp32_i2s_dac_set_active(Esp32I2sDacState *s, bool active)
++{
++    if (s->voice) {
++        AUD_set_active_out(s->voice, active);
++    }
++}
++
++static void esp32_i2s_dac_stop(Esp32I2sDacState *s)
++{
++    s->link_running = false;
++    s->current_descriptor = 0;
++    timer_del(s->dma_timer);
++    esp32_i2s_dac_set_active(s, false);
++}
++
++static void esp32_i2s_dac_push_sample(Esp32I2sDacState *s, uint8_t sample)
++{
++    if (s->audio_count == ESP32_I2S_DAC_AUDIO_BUFFER_BYTES) {
++        s->audio_read =
++            (s->audio_read + 1) % ESP32_I2S_DAC_AUDIO_BUFFER_BYTES;
++        --s->audio_count;
++    }
++    s->audio_buffer[s->audio_write] = sample;
++    s->audio_write =
++        (s->audio_write + 1) % ESP32_I2S_DAC_AUDIO_BUFFER_BYTES;
++    ++s->audio_count;
++}
++
++static void esp32_i2s_dac_audio_callback(void *opaque, int free)
++{
++    Esp32I2sDacState *s = opaque;
++
++    while (free > 0 && s->audio_count) {
++        const uint32_t contiguous = MIN(
++            s->audio_count,
++            ESP32_I2S_DAC_AUDIO_BUFFER_BYTES - s->audio_read);
++        const uint32_t wanted = MIN(contiguous, (uint32_t)free);
++        const size_t written = AUD_write(
++            s->voice, &s->audio_buffer[s->audio_read], wanted);
++        if (!written) {
++            break;
++        }
++        s->audio_read =
++            (s->audio_read + written) % ESP32_I2S_DAC_AUDIO_BUFFER_BYTES;
++        s->audio_count -= written;
++        free -= written;
++    }
++}
++
++static void esp32_i2s_dac_schedule(Esp32I2sDacState *s,
++                                    uint32_t sample_count)
++{
++    const uint64_t delay = MAX(
++        1ULL,
++        (uint64_t)sample_count * NANOSECONDS_PER_SECOND / s->sample_rate);
++    timer_mod(s->dma_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + delay);
++}
++
++static void esp32_i2s_dac_dma_timer(void *opaque)
++{
++    Esp32I2sDacState *s = opaque;
++    uint32_t descriptor[3] = {0};
++    uint8_t data[DMA_DESCRIPTOR_MAX_BYTES];
++
++    if (!s->link_running ||
++        !(s->regs[I2S_CONF_REG / 4] & I2S_CONF_TX_START) ||
++        !s->current_descriptor) {
++        esp32_i2s_dac_stop(s);
++        return;
++    }
++
++    cpu_physical_memory_read(
++        s->current_descriptor, descriptor, sizeof(descriptor));
++    uint32_t control = le32_to_cpu(descriptor[0]);
++    const uint32_t buffer = le32_to_cpu(descriptor[1]);
++    const uint32_t next = le32_to_cpu(descriptor[2]);
++    const uint32_t capacity = control & DMA_DESCRIPTOR_SIZE_MASK;
++    const uint32_t length =
++        (control & DMA_DESCRIPTOR_LENGTH_MASK) >>
++        DMA_DESCRIPTOR_LENGTH_SHIFT;
++
++    if (!buffer || !length || length > capacity ||
++        length > DMA_DESCRIPTOR_MAX_BYTES ||
++        ((s->regs[I2S_LC_CONF_REG / 4] & I2S_LC_CHECK_OWNER) &&
++         !(control & DMA_DESCRIPTOR_OWNER))) {
++        s->regs[I2S_INT_RAW_REG / 4] |= I2S_INT_OUT_DSCR_ERR;
++        esp32_i2s_dac_stop(s);
++        esp32_i2s_dac_update_irq(s);
++        return;
++    }
++
++    cpu_physical_memory_read(buffer, data, length);
++    for (uint32_t offset = 1; offset < length; offset += 2) {
++        esp32_i2s_dac_push_sample(s, data[offset]);
++    }
++
++    if (s->regs[I2S_LC_CONF_REG / 4] & I2S_LC_OUT_AUTO_WRBACK) {
++        control &= ~DMA_DESCRIPTOR_OWNER;
++        descriptor[0] = cpu_to_le32(control);
++        cpu_physical_memory_write(
++            s->current_descriptor, descriptor, sizeof(descriptor[0]));
++    }
++
++    s->regs[I2S_OUT_EOF_DES_ADDR_REG / 4] = s->current_descriptor;
++    s->regs[I2S_INT_RAW_REG / 4] |= I2S_INT_OUT_EOF;
++    if (next) {
++        s->current_descriptor = next;
++        esp32_i2s_dac_schedule(s, MAX(1U, length / 2U));
++    } else {
++        s->regs[I2S_INT_RAW_REG / 4] |= I2S_INT_OUT_TOTAL_EOF;
++        s->regs[I2S_OUT_LINK_REG / 4] |= I2S_OUT_LINK_PARK;
++        esp32_i2s_dac_stop(s);
++    }
++    esp32_i2s_dac_update_irq(s);
++}
++
++static uint64_t esp32_i2s_dac_read(void *opaque, hwaddr address,
++                                   unsigned size)
++{
++    Esp32I2sDacState *s = opaque;
++
++    if (address >= sizeof(s->regs)) {
++        return 0;
++    }
++    if (address == I2S_INT_ST_REG) {
++        return s->regs[I2S_INT_RAW_REG / 4] &
++               s->regs[I2S_INT_ENA_REG / 4];
++    }
++    return s->regs[address / 4];
++}
++
++static void esp32_i2s_dac_write(void *opaque, hwaddr address,
++                                uint64_t value, unsigned size)
++{
++    Esp32I2sDacState *s = opaque;
++    const uint32_t val = value;
++
++    if (address >= sizeof(s->regs)) {
++        return;
++    }
++    switch (address) {
++    case I2S_INT_RAW_REG:
++    case I2S_INT_ST_REG:
++    case I2S_OUT_EOF_DES_ADDR_REG:
++        break;
++    case I2S_INT_ENA_REG:
++        s->regs[address / 4] = val;
++        esp32_i2s_dac_update_irq(s);
++        break;
++    case I2S_INT_CLR_REG:
++        s->regs[I2S_INT_RAW_REG / 4] &= ~val;
++        esp32_i2s_dac_update_irq(s);
++        break;
++    case I2S_CONF_REG:
++        s->regs[address / 4] = val;
++        if ((val & I2S_CONF_TX_RESET) ||
++            !(val & I2S_CONF_TX_START)) {
++            esp32_i2s_dac_stop(s);
++        }
++        break;
++    case I2S_LC_CONF_REG:
++        s->regs[address / 4] = val;
++        if (val & I2S_LC_OUT_RESET) {
++            esp32_i2s_dac_stop(s);
++        }
++        break;
++    case I2S_OUT_LINK_REG:
++        s->regs[address / 4] = val & ~I2S_OUT_LINK_PARK;
++        if (val & I2S_OUT_LINK_STOP) {
++            esp32_i2s_dac_stop(s);
++        }
++        if (val & I2S_OUT_LINK_START) {
++            s->current_descriptor =
++                DMA_DESCRIPTOR_PREFIX | (val & I2S_OUT_LINK_ADDR_MASK);
++            s->link_running = true;
++            esp32_i2s_dac_set_active(s, true);
++            timer_mod(
++                s->dma_timer,
++                qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1);
++        }
++        break;
++    default:
++        s->regs[address / 4] = val;
++        break;
++    }
++}
++
++static const MemoryRegionOps esp32_i2s_dac_ops = {
++    .read = esp32_i2s_dac_read,
++    .write = esp32_i2s_dac_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .impl = {
++        .min_access_size = 4,
++        .max_access_size = 4,
++    },
++};
++
++static void esp32_i2s_dac_reset(DeviceState *dev)
++{
++    Esp32I2sDacState *s = ESP32_I2S_DAC(dev);
++
++    esp32_i2s_dac_stop(s);
++    memset(s->regs, 0, sizeof(s->regs));
++    s->regs[I2S_OUT_LINK_REG / 4] = I2S_OUT_LINK_PARK;
++    s->audio_read = 0;
++    s->audio_write = 0;
++    s->audio_count = 0;
++    esp32_i2s_dac_update_irq(s);
++}
++
++static void esp32_i2s_dac_realize(DeviceState *dev, Error **errp)
++{
++    Esp32I2sDacState *s = ESP32_I2S_DAC(dev);
++    const struct audsettings settings = {
++        s->sample_rate, 1, AUDIO_FORMAT_U8, 0
++    };
++
++    if (!s->sample_rate || s->sample_rate > 96000) {
++        error_setg(errp, "ESP32 DAC sample-rate must be 1..96000 Hz");
++        return;
++    }
++    if (s->volume > 100) {
++        error_setg(errp, "ESP32 DAC volume must be 0..100");
++        return;
++    }
++    if (s->card.state) {
++        if (!AUD_register_card("esp32-dac", &s->card, errp)) {
++            return;
++        }
++        s->voice = AUD_open_out(
++            &s->card, NULL, "esp32-dac-gpio26", s,
++            esp32_i2s_dac_audio_callback,
++            (struct audsettings *)&settings);
++        if (!s->voice) {
++            error_setg(errp, "Could not open ESP32 DAC audio output");
++            AUD_remove_card(&s->card);
++            return;
++        }
++        const uint8_t gain = (uint8_t)((s->volume * 255U + 50U) / 100U);
++        AUD_set_volume_out(s->voice, s->volume == 0, gain, gain);
++    }
++}
++
++static void esp32_i2s_dac_unrealize(DeviceState *dev)
++{
++    Esp32I2sDacState *s = ESP32_I2S_DAC(dev);
++
++    timer_del(s->dma_timer);
++    if (s->voice) {
++        AUD_close_out(&s->card, s->voice);
++        s->voice = NULL;
++    }
++    if (s->card.state) {
++        AUD_remove_card(&s->card);
++    }
++}
++
++static void esp32_i2s_dac_init(Object *obj)
++{
++    Esp32I2sDacState *s = ESP32_I2S_DAC(obj);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
++
++    memory_region_init_io(
++        &s->iomem, obj, &esp32_i2s_dac_ops, s, TYPE_ESP32_I2S_DAC, 0x1000);
++    sysbus_init_mmio(sbd, &s->iomem);
++    sysbus_init_irq(sbd, &s->irq);
++    s->dma_timer = timer_new_ns(
++        QEMU_CLOCK_VIRTUAL, esp32_i2s_dac_dma_timer, s);
++}
++
++static Property esp32_i2s_dac_properties[] = {
++    DEFINE_AUDIO_PROPERTIES(Esp32I2sDacState, card),
++    DEFINE_PROP_UINT32("sample-rate", Esp32I2sDacState, sample_rate, 8000),
++    DEFINE_PROP_UINT32("volume", Esp32I2sDacState, volume, 70),
++    DEFINE_PROP_END_OF_LIST(),
++};
++
++static void esp32_i2s_dac_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = esp32_i2s_dac_realize;
++    dc->unrealize = esp32_i2s_dac_unrealize;
++    device_class_set_legacy_reset(dc, esp32_i2s_dac_reset);
++    set_bit(DEVICE_CATEGORY_SOUND, dc->categories);
++    device_class_set_props(dc, esp32_i2s_dac_properties);
++}
++
++static const TypeInfo esp32_i2s_dac_info = {
++    .name = TYPE_ESP32_I2S_DAC,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(Esp32I2sDacState),
++    .instance_init = esp32_i2s_dac_init,
++    .class_init = esp32_i2s_dac_class_init,
++};
++
++static void esp32_i2s_dac_register_types(void)
++{
++    type_register_static(&esp32_i2s_dac_info);
++}
++
++type_init(esp32_i2s_dac_register_types)
+diff --git a/hw/audio/meson.build b/hw/audio/meson.build
+index 2990974..15d1972 100644
+--- a/hw/audio/meson.build
++++ b/hw/audio/meson.build
+@@ -1,4 +1,8 @@
+ system_ss.add(files('soundhw.c'))
++system_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
++  'esp32_analog_i2c.c',
++  'esp32_i2s_dac.c',
++))
+ system_ss.add(when: 'CONFIG_AC97', if_true: files('ac97.c'))
+ system_ss.add(when: 'CONFIG_ADLIB', if_true: files('fmopl.c', 'adlib.c'))
+ system_ss.add(when: 'CONFIG_ASC', if_true: files('asc.c'))
+diff --git a/hw/display/Kconfig b/hw/display/Kconfig
+index 4078a29..6a86e23 100644
+--- a/hw/display/Kconfig
++++ b/hw/display/Kconfig
+@@ -37,6 +37,9 @@ config SSD0303
+ config SSD0323
+     bool
+ 
++config ST7789
++    bool
++
+ config VGA_PCI
+     bool
+     default y if PCI_DEVICES
+diff --git a/hw/display/esp_rgb.c b/hw/display/esp_rgb.c
+index 345ef37..958e882 100644
+--- a/hw/display/esp_rgb.c
++++ b/hw/display/esp_rgb.c
+@@ -13,6 +13,7 @@
+ #include "qapi/error.h"
+ #include "sysemu/sysemu.h"
+ #include "hw/sysbus.h"
++#include "hw/qdev-properties.h"
+ #include "hw/irq.h"
+ #include "hw/display/esp_rgb.h"
+ #include "ui/console.h"
+@@ -265,6 +266,13 @@ static void esp_rgb_realize(DeviceState *dev, Error **errp)
+     assert(s->intram != NULL);
+     /* Create an address space for internal RAM so that we can read data from it on GUI update */
+     address_space_init(&s->intram_as, s->intram, "esp.rgb.intram_as");
++
++    if (s->console_enabled) {
++        s->con = graphic_console_init(DEVICE(s), 0, &fb_ops, s);
++        update_rgb_surface(s);
++        memset(surface_data(qemu_console_surface(s->con)), 0,
++               (s->width * s->height * s->bpp) / 8);
++    }
+ }
+ 
+ 
+@@ -290,15 +298,6 @@ static void esp_rgb_init(Object *obj)
+     s->update_area = false;
+     s->bpp = DEFAULT_BPP;
+ 
+-    if (s->con == NULL) {
+-        s->con = graphic_console_init(DEVICE(s), 0, &fb_ops, s);
+-        /* Resize and use corrent color bpp*/
+-        update_rgb_surface(s);
+-        void * data = surface_data(qemu_console_surface(s->con));
+-        /* Initialize the window to black */
+-        memset(data, 0, (s->width * s->height * s->bpp) / 8);
+-    }
+-
+     /* Create a memory region that can be used as a framebuffer by the guest */
+     memory_region_init_ram(&s->vram, OBJECT(s), "esp-rgb-vram", ESP_RGB_MAX_VRAM_SIZE, &error_abort);
+ 
+@@ -326,9 +325,15 @@ static void esp_rgb_class_init(ObjectClass *klass, void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
+     ResettableClass *rc = RESETTABLE_CLASS(klass);
++    static const Property properties[] = {
++        DEFINE_PROP_BOOL("console-enabled", ESPRgbState,
++                         console_enabled, true),
++        DEFINE_PROP_END_OF_LIST(),
++    };
+ 
+     rc->phases.hold = esp_rgb_reset_hold;
+     dc->realize = esp_rgb_realize;
++    device_class_set_props(dc, properties);
+ }
+ 
+ static const TypeInfo esp_rgb_info = {
+diff --git a/hw/display/meson.build b/hw/display/meson.build
+index 36a9ace..9a1d971 100644
+--- a/hw/display/meson.build
++++ b/hw/display/meson.build
+@@ -14,6 +14,7 @@ system_ss.add(when: 'CONFIG_PL110', if_true: files('pl110.c'))
+ system_ss.add(when: 'CONFIG_SII9022', if_true: files('sii9022.c'))
+ system_ss.add(when: 'CONFIG_SSD0303', if_true: files('ssd0303.c'))
+ system_ss.add(when: 'CONFIG_SSD0323', if_true: files('ssd0323.c'))
++system_ss.add(when: 'CONFIG_ST7789', if_true: files('st7789.c'))
+ system_ss.add(when: 'CONFIG_XEN_BUS', if_true: files('xenfb.c'))
+ 
+ system_ss.add(when: 'CONFIG_VGA_PCI', if_true: files('vga-pci.c'))
+diff --git a/hw/display/st7789.c b/hw/display/st7789.c
+new file mode 100644
+index 0000000..8803984
+--- /dev/null
++++ b/hw/display/st7789.c
+@@ -0,0 +1,742 @@
++/*
++ * Sitronix ST7789 SPI LCD controller.
++ *
++ * This model implements the command subset used by the ESP-IDF ST7789
++ * panel driver and a 320x240 landscape console for the ESP32-2432S028.
++ *
++ * Copyright (c) 2026 HLV codec contributors
++ *
++ * This code is licensed under the GPL version 2 or later.
++ */
++
++#include "qemu/osdep.h"
++#include "hw/irq.h"
++#include "hw/ssi/ssi.h"
++#include "migration/vmstate.h"
++#include "qemu/module.h"
++#include "ui/console.h"
++#include "ui/input.h"
++#include "ui/pixel_ops.h"
++#include "qom/object.h"
++
++#define ST7789_WIDTH  320
++#define ST7789_HEIGHT 240
++#define ST7789_CONTROL_HEIGHT 44
++#define ST7789_SURFACE_HEIGHT (ST7789_HEIGHT + ST7789_CONTROL_HEIGHT)
++
++#define ST7789_BUTTON_Y      248
++#define ST7789_BUTTON_HEIGHT 28
++#define ST7789_RESET_X       16
++#define ST7789_BOOT_X        118
++#define ST7789_BUTTON_WIDTH  90
++#define ST7789_HOLD_X        222
++#define ST7789_HOLD_Y        255
++#define ST7789_CHECK_SIZE    14
++
++#define ST7789_CMD_SWRESET 0x01
++#define ST7789_CMD_SLPIN   0x10
++#define ST7789_CMD_SLPOUT  0x11
++#define ST7789_CMD_INVOFF  0x20
++#define ST7789_CMD_INVON   0x21
++#define ST7789_CMD_DISPOFF 0x28
++#define ST7789_CMD_DISPON  0x29
++#define ST7789_CMD_CASET   0x2a
++#define ST7789_CMD_RASET   0x2b
++#define ST7789_CMD_RAMWR   0x2c
++#define ST7789_CMD_MADCTL  0x36
++#define ST7789_CMD_COLMOD  0x3a
++#define ST7789_CMD_RAMCTRL 0xb0
++
++#define ST7789_MADCTL_BGR  0x08
++#define ST7789_RAMCTRL_LITTLE_ENDIAN 0x08
++
++#define TYPE_ST7789 "st7789"
++OBJECT_DECLARE_SIMPLE_TYPE(ST7789State, ST7789)
++
++struct ST7789State {
++    SSIPeripheral parent_obj;
++    QemuConsole *con;
++    QemuInputHandlerState *input;
++    qemu_irq reset_button;
++    qemu_irq boot_button;
++
++    uint8_t command;
++    uint8_t argument[4];
++    uint8_t argument_index;
++    uint8_t pixel_byte;
++    uint8_t madctl;
++    uint8_t colmod;
++    uint8_t ramctrl;
++    bool dc;
++    bool backlight;
++    bool display_on;
++    bool sleeping;
++    bool inverted;
++    bool little_endian;
++    bool redraw;
++    bool pointer_left;
++    bool reset_pressed;
++    bool boot_pressed;
++    bool emulate_boot_hold;
++    int pointer_x;
++    int pointer_y;
++
++    uint16_t column;
++    uint16_t row;
++    uint16_t column_start;
++    uint16_t column_end;
++    uint16_t row_start;
++    uint16_t row_end;
++    uint16_t framebuffer[ST7789_WIDTH * ST7789_HEIGHT];
++};
++
++static void st7789_reset_state(ST7789State *s, bool clear_framebuffer)
++{
++    s->command = 0;
++    s->argument_index = 0;
++    s->pixel_byte = 0;
++    s->madctl = 0;
++    s->colmod = 0x55;
++    s->ramctrl = 0xf0;
++    s->display_on = false;
++    s->sleeping = true;
++    s->inverted = false;
++    s->little_endian = false;
++    s->column = 0;
++    s->row = 0;
++    s->column_start = 0;
++    s->column_end = ST7789_WIDTH - 1;
++    s->row_start = 0;
++    s->row_end = ST7789_HEIGHT - 1;
++    if (clear_framebuffer) {
++        memset(s->framebuffer, 0, sizeof(s->framebuffer));
++    }
++    s->redraw = true;
++}
++
++static void st7789_advance_address(ST7789State *s)
++{
++    s->column++;
++    if (s->column > s->column_end) {
++        s->column = s->column_start;
++        s->row++;
++        if (s->row > s->row_end) {
++            s->row = s->row_start;
++        }
++    }
++}
++
++static void st7789_write_pixel_byte(ST7789State *s, uint8_t data)
++{
++    uint16_t pixel;
++
++    if (s->pixel_byte == 0) {
++        s->argument[0] = data;
++        s->pixel_byte = 1;
++        return;
++    }
++
++    if (s->little_endian) {
++        pixel = s->argument[0] | ((uint16_t)data << 8);
++    } else {
++        pixel = ((uint16_t)s->argument[0] << 8) | data;
++    }
++    s->pixel_byte = 0;
++
++    if (s->column < ST7789_WIDTH && s->row < ST7789_HEIGHT) {
++        s->framebuffer[s->row * ST7789_WIDTH + s->column] = pixel;
++        s->redraw = true;
++    }
++    st7789_advance_address(s);
++}
++
++static unsigned st7789_argument_count(uint8_t command)
++{
++    switch (command) {
++    case ST7789_CMD_CASET:
++    case ST7789_CMD_RASET:
++        return 4;
++    case ST7789_CMD_MADCTL:
++    case ST7789_CMD_COLMOD:
++        return 1;
++    case ST7789_CMD_RAMCTRL:
++        return 2;
++    default:
++        return 0;
++    }
++}
++
++static void st7789_apply_arguments(ST7789State *s)
++{
++    switch (s->command) {
++    case ST7789_CMD_CASET:
++        s->column_start = ((uint16_t)s->argument[0] << 8) | s->argument[1];
++        s->column_end = ((uint16_t)s->argument[2] << 8) | s->argument[3];
++        s->column = s->column_start;
++        break;
++    case ST7789_CMD_RASET:
++        s->row_start = ((uint16_t)s->argument[0] << 8) | s->argument[1];
++        s->row_end = ((uint16_t)s->argument[2] << 8) | s->argument[3];
++        s->row = s->row_start;
++        break;
++    case ST7789_CMD_MADCTL:
++        s->madctl = s->argument[0];
++        s->redraw = true;
++        break;
++    case ST7789_CMD_COLMOD:
++        s->colmod = s->argument[0];
++        break;
++    case ST7789_CMD_RAMCTRL:
++        s->ramctrl = s->argument[1];
++        s->little_endian =
++            (s->ramctrl & ST7789_RAMCTRL_LITTLE_ENDIAN) != 0;
++        break;
++    default:
++        break;
++    }
++}
++
++static void st7789_command(ST7789State *s, uint8_t command)
++{
++    s->command = command;
++    s->argument_index = 0;
++    s->pixel_byte = 0;
++
++    switch (command) {
++    case ST7789_CMD_SWRESET:
++        st7789_reset_state(s, true);
++        break;
++    case ST7789_CMD_SLPIN:
++        s->sleeping = true;
++        s->redraw = true;
++        break;
++    case ST7789_CMD_SLPOUT:
++        s->sleeping = false;
++        s->redraw = true;
++        break;
++    case ST7789_CMD_INVOFF:
++        s->inverted = false;
++        s->redraw = true;
++        break;
++    case ST7789_CMD_INVON:
++        s->inverted = true;
++        s->redraw = true;
++        break;
++    case ST7789_CMD_DISPOFF:
++        s->display_on = false;
++        s->redraw = true;
++        break;
++    case ST7789_CMD_DISPON:
++        s->display_on = true;
++        s->redraw = true;
++        break;
++    default:
++        break;
++    }
++}
++
++static uint32_t st7789_transfer(SSIPeripheral *dev, uint32_t data)
++{
++    ST7789State *s = ST7789(dev);
++    uint8_t byte = data;
++    unsigned argument_count;
++
++    if (!s->dc) {
++        st7789_command(s, byte);
++        return 0;
++    }
++
++    if (s->command == ST7789_CMD_RAMWR) {
++        if ((s->colmod & 0x77) == 0x55) {
++            st7789_write_pixel_byte(s, byte);
++        }
++        return 0;
++    }
++
++    argument_count = st7789_argument_count(s->command);
++    if (s->argument_index < argument_count) {
++        s->argument[s->argument_index++] = byte;
++        if (s->argument_index == argument_count) {
++            st7789_apply_arguments(s);
++        }
++    }
++    return 0;
++}
++
++static uint32_t st7789_rgb_to_surface(DisplaySurface *surface,
++                                      uint8_t red, uint8_t green,
++                                      uint8_t blue)
++{
++    switch (surface_bits_per_pixel(surface)) {
++    case 8:
++        return rgb_to_pixel8(red, green, blue);
++    case 15:
++        return rgb_to_pixel15(red, green, blue);
++    case 16:
++        return rgb_to_pixel16(red, green, blue);
++    case 24:
++        return rgb_to_pixel24(red, green, blue);
++    case 32:
++        return rgb_to_pixel32(red, green, blue);
++    default:
++        return 0;
++    }
++}
++
++static void st7789_store_surface_pixel(uint8_t *dest, int bytes_per_pixel,
++                                       uint32_t pixel)
++{
++    switch (bytes_per_pixel) {
++    case 1:
++        *dest = pixel;
++        break;
++    case 2:
++        *(uint16_t *)dest = pixel;
++        break;
++    case 3:
++        memcpy(dest, &pixel, 3);
++        break;
++    case 4:
++        *(uint32_t *)dest = pixel;
++        break;
++    default:
++        break;
++    }
++}
++
++static void st7789_put_surface_rgb(DisplaySurface *surface, int x, int y,
++                                    uint8_t red, uint8_t green, uint8_t blue)
++{
++    int bytes_per_pixel = (surface_bits_per_pixel(surface) + 7) >> 3;
++    uint8_t *dest = surface_data(surface) + y * surface_stride(surface) +
++                    x * bytes_per_pixel;
++    uint32_t pixel =
++        st7789_rgb_to_surface(surface, red, green, blue);
++
++    st7789_store_surface_pixel(dest, bytes_per_pixel, pixel);
++}
++
++static const uint8_t *st7789_glyph(char character)
++{
++    static const uint8_t b[7] = {
++        0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e
++    };
++    static const uint8_t e[7] = {
++        0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f
++    };
++    static const uint8_t d[7] = {
++        0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e
++    };
++    static const uint8_t h[7] = {
++        0x11, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11
++    };
++    static const uint8_t l[7] = {
++        0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f
++    };
++    static const uint8_t o[7] = {
++        0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e
++    };
++    static const uint8_t r[7] = {
++        0x1e, 0x11, 0x11, 0x1e, 0x14, 0x12, 0x11
++    };
++    static const uint8_t s[7] = {
++        0x0f, 0x10, 0x10, 0x0e, 0x01, 0x01, 0x1e
++    };
++    static const uint8_t t[7] = {
++        0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04
++    };
++
++    switch (character) {
++    case 'B':
++        return b;
++    case 'D':
++        return d;
++    case 'E':
++        return e;
++    case 'H':
++        return h;
++    case 'L':
++        return l;
++    case 'O':
++        return o;
++    case 'R':
++        return r;
++    case 'S':
++        return s;
++    case 'T':
++        return t;
++    default:
++        return NULL;
++    }
++}
++
++static void st7789_draw_text(DisplaySurface *surface, int x, int y,
++                              const char *text)
++{
++    const int scale = 2;
++
++    while (*text) {
++        const uint8_t *glyph = st7789_glyph(*text++);
++        int row;
++
++        if (glyph) {
++            for (row = 0; row < 7; row++) {
++                int column;
++
++                for (column = 0; column < 5; column++) {
++                    if (glyph[row] & (1 << (4 - column))) {
++                        int dx;
++                        int dy;
++
++                        for (dy = 0; dy < scale; dy++) {
++                            for (dx = 0; dx < scale; dx++) {
++                                st7789_put_surface_rgb(
++                                    surface, x + column * scale + dx,
++                                    y + row * scale + dy,
++                                    0xf4, 0xf4, 0xf4);
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        x += 6 * scale;
++    }
++}
++
++static void st7789_draw_button(DisplaySurface *surface, int button_x,
++                                bool active, const char *label)
++{
++    int label_width = strlen(label) * 12 - 2;
++    int x;
++    int y;
++
++    for (y = ST7789_BUTTON_Y;
++         y < ST7789_BUTTON_Y + ST7789_BUTTON_HEIGHT; y++) {
++        for (x = button_x; x < button_x + ST7789_BUTTON_WIDTH; x++) {
++            bool border = x == button_x ||
++                          x == button_x + ST7789_BUTTON_WIDTH - 1 ||
++                          y == ST7789_BUTTON_Y ||
++                          y == ST7789_BUTTON_Y + ST7789_BUTTON_HEIGHT - 1;
++
++            if (border) {
++                st7789_put_surface_rgb(surface, x, y,
++                                       0x9a, 0xa0, 0xaa);
++            } else if (active) {
++                st7789_put_surface_rgb(surface, x, y,
++                                       0x9b, 0x35, 0x35);
++            } else {
++                st7789_put_surface_rgb(surface, x, y,
++                                       0x3f, 0x47, 0x53);
++            }
++        }
++    }
++
++    st7789_draw_text(surface,
++                     button_x + (ST7789_BUTTON_WIDTH - label_width) / 2,
++                     ST7789_BUTTON_Y + 7, label);
++}
++
++static void st7789_draw_controls(ST7789State *s, DisplaySurface *surface)
++{
++    int x;
++    int y;
++
++    for (y = ST7789_HEIGHT; y < ST7789_SURFACE_HEIGHT; y++) {
++        for (x = 0; x < ST7789_WIDTH; x++) {
++            st7789_put_surface_rgb(surface, x, y, 0x20, 0x24, 0x2a);
++        }
++    }
++
++    st7789_draw_button(surface, ST7789_RESET_X, s->reset_pressed, "RESET");
++    st7789_draw_button(surface, ST7789_BOOT_X, s->boot_pressed, "BOOT");
++
++    for (y = ST7789_HOLD_Y; y < ST7789_HOLD_Y + ST7789_CHECK_SIZE; y++) {
++        for (x = ST7789_HOLD_X; x < ST7789_HOLD_X + ST7789_CHECK_SIZE; x++) {
++            bool border = x == ST7789_HOLD_X ||
++                          x == ST7789_HOLD_X + ST7789_CHECK_SIZE - 1 ||
++                          y == ST7789_HOLD_Y ||
++                          y == ST7789_HOLD_Y + ST7789_CHECK_SIZE - 1;
++
++            if (border) {
++                st7789_put_surface_rgb(surface, x, y,
++                                       0x9a, 0xa0, 0xaa);
++            } else if (s->emulate_boot_hold) {
++                st7789_put_surface_rgb(surface, x, y,
++                                       0x9b, 0x35, 0x35);
++            } else {
++                st7789_put_surface_rgb(surface, x, y,
++                                       0x20, 0x24, 0x2a);
++            }
++        }
++    }
++    st7789_draw_text(surface, ST7789_HOLD_X + ST7789_CHECK_SIZE + 6,
++                     ST7789_HOLD_Y, "HOLD");
++}
++
++static void st7789_update_display(void *opaque)
++{
++    ST7789State *s = opaque;
++    DisplaySurface *surface = qemu_console_surface(s->con);
++    int bytes_per_pixel;
++    bool blanked;
++    int x;
++    int y;
++
++    if (!s->redraw || surface_bits_per_pixel(surface) == 0) {
++        return;
++    }
++
++    bytes_per_pixel = (surface_bits_per_pixel(surface) + 7) >> 3;
++    if (bytes_per_pixel < 1 || bytes_per_pixel > 4) {
++        return;
++    }
++    blanked = !s->backlight || !s->display_on || s->sleeping;
++
++    for (y = 0; y < ST7789_HEIGHT; y++) {
++        uint8_t *dest =
++            surface_data(surface) + y * surface_stride(surface);
++
++        for (x = 0; x < ST7789_WIDTH; x++) {
++            uint16_t color =
++                blanked ? 0 : s->framebuffer[y * ST7789_WIDTH + x];
++            uint8_t red;
++            uint8_t green;
++            uint8_t blue;
++            uint32_t pixel;
++
++            if (s->inverted && !blanked) {
++                color ^= 0xffff;
++            }
++            red = ((color >> 11) & 0x1f) * 255 / 31;
++            green = ((color >> 5) & 0x3f) * 255 / 63;
++            blue = (color & 0x1f) * 255 / 31;
++            if (s->madctl & ST7789_MADCTL_BGR) {
++                uint8_t swap = red;
++                red = blue;
++                blue = swap;
++            }
++            pixel = st7789_rgb_to_surface(surface, red, green, blue);
++            st7789_store_surface_pixel(dest, bytes_per_pixel, pixel);
++            dest += bytes_per_pixel;
++        }
++    }
++
++    st7789_draw_controls(s, surface);
++    s->redraw = false;
++    dpy_gfx_update_full(s->con);
++}
++
++static void st7789_invalidate_display(void *opaque)
++{
++    ST7789State *s = opaque;
++
++    s->redraw = true;
++}
++
++static void st7789_dc(void *opaque, int line, int level)
++{
++    ST7789State *s = opaque;
++
++    s->dc = level != 0;
++}
++
++static void st7789_backlight(void *opaque, int line, int level)
++{
++    ST7789State *s = opaque;
++    bool enabled = level != 0;
++
++    if (s->backlight != enabled) {
++        s->backlight = enabled;
++        s->redraw = true;
++    }
++}
++
++static bool st7789_button_contains(int x, int y, int button_x)
++{
++    return x >= button_x && x < button_x + ST7789_BUTTON_WIDTH &&
++           y >= ST7789_BUTTON_Y &&
++           y < ST7789_BUTTON_Y + ST7789_BUTTON_HEIGHT;
++}
++
++static bool st7789_hold_contains(int x, int y)
++{
++    return x >= ST7789_HOLD_X &&
++           x < ST7789_HOLD_X + ST7789_CHECK_SIZE + 6 + 4 * 12 &&
++           y >= ST7789_HOLD_Y && y < ST7789_HOLD_Y + ST7789_CHECK_SIZE;
++}
++
++static void st7789_input_event(DeviceState *device, QemuConsole *src,
++                                InputEvent *event)
++{
++    ST7789State *s = ST7789(device);
++
++    if (src && src != s->con) {
++        return;
++    }
++
++    switch (event->type) {
++    case INPUT_EVENT_KIND_ABS: {
++        InputMoveEvent *move = event->u.abs.data;
++
++        if (move->axis == INPUT_AXIS_X) {
++            s->pointer_x = move->value * (ST7789_WIDTH - 1) /
++                           INPUT_EVENT_ABS_MAX;
++        } else if (move->axis == INPUT_AXIS_Y) {
++            s->pointer_y = move->value * (ST7789_SURFACE_HEIGHT - 1) /
++                           INPUT_EVENT_ABS_MAX;
++        }
++        break;
++    }
++    case INPUT_EVENT_KIND_BTN: {
++        InputBtnEvent *button = event->u.btn.data;
++
++        if (button->button != INPUT_BUTTON_LEFT ||
++            button->down == s->pointer_left) {
++            break;
++        }
++
++        s->pointer_left = button->down;
++        if (button->down &&
++            st7789_button_contains(s->pointer_x, s->pointer_y,
++                                   ST7789_RESET_X)) {
++            s->reset_pressed = true;
++            s->redraw = true;
++            qemu_set_irq(s->reset_button, 1);
++        } else if (button->down &&
++                   st7789_button_contains(s->pointer_x, s->pointer_y,
++                                          ST7789_BOOT_X)) {
++            s->boot_pressed = true;
++            s->redraw = true;
++            qemu_set_irq(s->boot_button, 1);
++        } else if (button->down &&
++                   st7789_hold_contains(s->pointer_x, s->pointer_y)) {
++            s->emulate_boot_hold = !s->emulate_boot_hold;
++            s->redraw = true;
++            qemu_set_irq(s->boot_button,
++                         s->boot_pressed || s->emulate_boot_hold);
++        } else if (!button->down) {
++            if (s->reset_pressed) {
++                s->reset_pressed = false;
++                qemu_set_irq(s->reset_button, 0);
++                s->redraw = true;
++            }
++            if (s->boot_pressed) {
++                s->boot_pressed = false;
++                qemu_set_irq(s->boot_button, s->emulate_boot_hold);
++                s->redraw = true;
++            }
++        }
++        break;
++    }
++    default:
++        break;
++    }
++}
++
++static const QemuInputHandler st7789_input_handler = {
++    .name = "ESP32 ST7789 controls",
++    .mask = INPUT_EVENT_MASK_BTN | INPUT_EVENT_MASK_ABS,
++    .event = st7789_input_event,
++};
++
++static int st7789_post_load(void *opaque, int version_id)
++{
++    st7789_invalidate_display(opaque);
++    return 0;
++}
++
++static const VMStateDescription vmstate_st7789 = {
++    .name = "st7789",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .post_load = st7789_post_load,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT8(command, ST7789State),
++        VMSTATE_UINT8_ARRAY(argument, ST7789State, 4),
++        VMSTATE_UINT8(argument_index, ST7789State),
++        VMSTATE_UINT8(pixel_byte, ST7789State),
++        VMSTATE_UINT8(madctl, ST7789State),
++        VMSTATE_UINT8(colmod, ST7789State),
++        VMSTATE_UINT8(ramctrl, ST7789State),
++        VMSTATE_BOOL(dc, ST7789State),
++        VMSTATE_BOOL(backlight, ST7789State),
++        VMSTATE_BOOL(display_on, ST7789State),
++        VMSTATE_BOOL(sleeping, ST7789State),
++        VMSTATE_BOOL(inverted, ST7789State),
++        VMSTATE_BOOL(little_endian, ST7789State),
++        VMSTATE_UINT16(column, ST7789State),
++        VMSTATE_UINT16(row, ST7789State),
++        VMSTATE_UINT16(column_start, ST7789State),
++        VMSTATE_UINT16(column_end, ST7789State),
++        VMSTATE_UINT16(row_start, ST7789State),
++        VMSTATE_UINT16(row_end, ST7789State),
++        VMSTATE_UINT16_ARRAY(framebuffer, ST7789State,
++                             ST7789_WIDTH * ST7789_HEIGHT),
++        VMSTATE_SSI_PERIPHERAL(parent_obj, ST7789State),
++        VMSTATE_END_OF_LIST()
++    },
++};
++
++static const GraphicHwOps st7789_ops = {
++    .invalidate = st7789_invalidate_display,
++    .gfx_update = st7789_update_display,
++};
++
++static void st7789_realize(SSIPeripheral *dev, Error **errp)
++{
++    DeviceState *device = DEVICE(dev);
++    ST7789State *s = ST7789(dev);
++
++    s->con = graphic_console_init(device, 0, &st7789_ops, s);
++    qemu_console_resize(s->con, ST7789_WIDTH, ST7789_SURFACE_HEIGHT);
++    qdev_init_gpio_in_named(device, st7789_dc, "dc", 1);
++    qdev_init_gpio_in_named(device, st7789_backlight, "backlight", 1);
++    qdev_init_gpio_out_named(device, &s->reset_button, "reset-button", 1);
++    qdev_init_gpio_out_named(device, &s->boot_button, "boot-button", 1);
++    s->input = qemu_input_handler_register(device, &st7789_input_handler);
++    st7789_reset_state(s, true);
++}
++
++static void st7789_unrealize(DeviceState *device)
++{
++    ST7789State *s = ST7789(device);
++
++    qemu_input_handler_unregister(s->input);
++    s->input = NULL;
++}
++
++static void st7789_reset(DeviceState *device)
++{
++    ST7789State *s = ST7789(device);
++
++    st7789_reset_state(s, true);
++}
++
++static void st7789_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++    SSIPeripheralClass *ssi = SSI_PERIPHERAL_CLASS(klass);
++
++    ssi->realize = st7789_realize;
++    ssi->transfer = st7789_transfer;
++    ssi->cs_polarity = SSI_CS_LOW;
++    dc->vmsd = &vmstate_st7789;
++    dc->unrealize = st7789_unrealize;
++    device_class_set_legacy_reset(dc, st7789_reset);
++    set_bit(DEVICE_CATEGORY_DISPLAY, dc->categories);
++}
++
++static const TypeInfo st7789_info = {
++    .name = TYPE_ST7789,
++    .parent = TYPE_SSI_PERIPHERAL,
++    .instance_size = sizeof(ST7789State),
++    .class_init = st7789_class_init,
++};
++
++static void st7789_register_types(void)
++{
++    type_register_static(&st7789_info);
++}
++
++type_init(st7789_register_types)
+diff --git a/hw/xtensa/Kconfig b/hw/xtensa/Kconfig
+index 5866207..c900f2f 100644
+--- a/hw/xtensa/Kconfig
++++ b/hw/xtensa/Kconfig
+@@ -25,6 +25,7 @@ config XTENSA_ESP32
+     default y
+     depends on XTENSA
+     select SSI
++    select SSI_SD
+     select SSI_M25P80
+     select UNIMP
+     select OPENCORES_ETH
+@@ -32,6 +33,7 @@ config XTENSA_ESP32
+     select TMP105
+     select LED
+     select ESP_RGB
++    select ST7789
+ 
+ config XTENSA_ESP32S3
+     bool
+@@ -44,5 +46,3 @@ config XTENSA_ESP32S3
+     select DWC_SDMMC
+     select TMP105
+     select ESP_RGB
+-
+-
+diff --git a/hw/xtensa/esp32_intc.c b/hw/xtensa/esp32_intc.c
+index fed7cf7..323bf8d 100644
+--- a/hw/xtensa/esp32_intc.c
++++ b/hw/xtensa/esp32_intc.c
+@@ -22,23 +22,41 @@
+ 
+ #define IRQ_MAP(cpu, input) s->irq_map[cpu][input]
+ 
+-static void esp32_intmatrix_irq_handler(void *opaque, int n, int level)
++static void esp32_intmatrix_update_output(Esp32IntMatrixState *s,
++                                          int cpu_index, int out_index)
+ {
+-    Esp32IntMatrixState *s = ESP32_INTMATRIX(opaque);
+-    for (int i = 0; i < ESP32_CPU_COUNT; ++i) {
+-        if (s->outputs[i] == NULL) {
+-            continue;
++    bool level = false;
++
++    if (s->outputs[cpu_index] == NULL) {
++        return;
++    }
++    for (int source = 0; source < ESP32_INT_MATRIX_INPUTS; source++) {
++        if (IRQ_MAP(cpu_index, source) == out_index &&
++            s->input_levels[source]) {
++            level = true;
++            break;
+         }
+-        int out_index = IRQ_MAP(i, n);
+-        for (int int_index = 0; int_index < s->cpu[i]->env.config->nextint; ++int_index) {
+-            if (s->cpu[i]->env.config->extint[int_index] == out_index) {
+-                qemu_set_irq(s->outputs[i][int_index], level);
+-                break;
+-            }
++    }
++    for (int int_index = 0;
++         int_index < s->cpu[cpu_index]->env.config->nextint;
++         int_index++) {
++        if (s->cpu[cpu_index]->env.config->extint[int_index] == out_index) {
++            qemu_set_irq(s->outputs[cpu_index][int_index], level);
++            break;
+         }
+     }
+ }
+ 
++static void esp32_intmatrix_irq_handler(void *opaque, int n, int level)
++{
++    Esp32IntMatrixState *s = ESP32_INTMATRIX(opaque);
++
++    s->input_levels[n] = level;
++    for (int cpu = 0; cpu < ESP32_CPU_COUNT; cpu++) {
++        esp32_intmatrix_update_output(s, cpu, IRQ_MAP(cpu, n));
++    }
++}
++
+ static inline uint8_t* get_map_entry(Esp32IntMatrixState* s, hwaddr addr)
+ {
+     int source_index = addr / sizeof(uint32_t);
+@@ -63,7 +81,13 @@ static void esp32_intmatrix_write(void* opaque, hwaddr addr, uint64_t value, uns
+     Esp32IntMatrixState *s = ESP32_INTMATRIX(opaque);
+     uint8_t* map_entry = get_map_entry(s, addr);
+     if (map_entry != NULL) {
++        int entry = addr / sizeof(uint32_t);
++        int cpu = entry / ESP32_INT_MATRIX_INPUTS;
++        int old_output = *map_entry;
++
+         *map_entry = value & 0x1f;
++        esp32_intmatrix_update_output(s, cpu, old_output);
++        esp32_intmatrix_update_output(s, cpu, *map_entry);
+     }
+ }
+ 
+@@ -77,6 +101,7 @@ static void esp32_intmatrix_reset_hold(Object *obj, ResetType type)
+ {
+     Esp32IntMatrixState *s = ESP32_INTMATRIX(obj);
+     memset(s->irq_map, INTMATRIX_UNINT_VALUE, sizeof(s->irq_map));
++    memset(s->input_levels, 0, sizeof(s->input_levels));
+     for (int i = 0; i < ESP32_CPU_COUNT; ++i) {
+         if (s->outputs[i] == NULL) {
+             continue;
+diff --git a/include/hw/audio/esp32_analog_i2c.h b/include/hw/audio/esp32_analog_i2c.h
+new file mode 100644
+index 0000000..c148590
+--- /dev/null
++++ b/include/hw/audio/esp32_analog_i2c.h
+@@ -0,0 +1,13 @@
++#pragma once
++
++#include "hw/sysbus.h"
++
++#define TYPE_ESP32_ANALOG_I2C "esp32-analog-i2c"
++OBJECT_DECLARE_SIMPLE_TYPE(Esp32AnalogI2cState, ESP32_ANALOG_I2C)
++
++struct Esp32AnalogI2cState {
++    SysBusDevice parent_obj;
++    MemoryRegion iomem;
++    uint32_t command[5];
++    uint8_t registers[256][16];
++};
+diff --git a/include/hw/audio/esp32_i2s_dac.h b/include/hw/audio/esp32_i2s_dac.h
+new file mode 100644
+index 0000000..89a520a
+--- /dev/null
++++ b/include/hw/audio/esp32_i2s_dac.h
+@@ -0,0 +1,32 @@
++#pragma once
++
++#include "audio/audio.h"
++#include "hw/sysbus.h"
++#include "qemu/timer.h"
++#include "qom/object.h"
++
++#define TYPE_ESP32_I2S_DAC "esp32.i2s-dac"
++OBJECT_DECLARE_SIMPLE_TYPE(Esp32I2sDacState, ESP32_I2S_DAC)
++
++#define ESP32_I2S_DAC_AUDIO_BUFFER_BYTES 65536
++
++struct Esp32I2sDacState {
++    SysBusDevice parent_obj;
++
++    MemoryRegion iomem;
++    qemu_irq irq;
++    QEMUSoundCard card;
++    SWVoiceOut *voice;
++    QEMUTimer *dma_timer;
++
++    uint32_t regs[0x100 / sizeof(uint32_t)];
++    uint32_t current_descriptor;
++    uint32_t sample_rate;
++    uint32_t volume;
++    bool link_running;
++
++    uint8_t audio_buffer[ESP32_I2S_DAC_AUDIO_BUFFER_BYTES];
++    uint32_t audio_read;
++    uint32_t audio_write;
++    uint32_t audio_count;
++};
+diff --git a/include/hw/display/esp_rgb.h b/include/hw/display/esp_rgb.h
+index 8aec1c0..9d126a9 100644
+--- a/include/hw/display/esp_rgb.h
++++ b/include/hw/display/esp_rgb.h
+@@ -36,6 +36,7 @@ typedef struct ESPRgbState {
+     uint32_t width;
+     uint32_t height;
+     bool do_update_surface;
++    bool console_enabled;
+ 
+     /* Update area */
+     bool update_area;
+@@ -77,4 +78,4 @@ REG32(RGB_UPDATE_STATUS, 0x14)
+      * Automatically cleared by the hardware after window update. */
+     FIELD(RGB_UPDATE_STATUS, ENA, 0, 1)
+ 
+-REG32(RGB_BPP_VALUE, 0x18)
+\ No newline at end of file
++REG32(RGB_BPP_VALUE, 0x18)
+diff --git a/include/hw/ssi/esp32_spi.h b/include/hw/ssi/esp32_spi.h
+index dcf9bc8..76c8f0d 100644
+--- a/include/hw/ssi/esp32_spi.h
++++ b/include/hw/ssi/esp32_spi.h
+@@ -18,7 +18,6 @@ typedef struct Esp32SpiState {
+     qemu_irq cs_gpio[ESP32_SPI_CS_COUNT];
+     int num_cs;
+     SSIBus *spi;
+-
+     uint32_t addr_reg;
+     uint32_t ctrl_reg;
+     uint32_t status_reg;
+@@ -30,7 +29,11 @@ typedef struct Esp32SpiState {
+     uint32_t mosi_dlen_reg;
+     uint32_t miso_dlen_reg;
+     uint32_t pin_reg;
++    uint32_t slave_reg;
+     uint32_t data_reg[ESP32_SPI_BUF_WORDS];
++    uint32_t dma_conf_reg;
++    uint32_t dma_out_link_reg;
++    uint32_t dma_in_link_reg;
+ } Esp32SpiState;
+ 
+ 
+@@ -90,5 +93,3 @@ REG32(SPI_EXT0, 0xF0)
+ REG32(SPI_EXT1, 0xF4)
+ REG32(SPI_EXT2, 0xF8)
+ REG32(SPI_EXT3, 0xFC)
+-
+-
+diff --git a/include/hw/xtensa/esp32.h b/include/hw/xtensa/esp32.h
+index fc1f927..9118094 100644
+--- a/include/hw/xtensa/esp32.h
++++ b/include/hw/xtensa/esp32.h
+@@ -24,6 +24,8 @@
+ #include "hw/net/can/esp32_twai.h"
+ #include "hw/sd/dwc_sdmmc.h"
+ #include "hw/display/esp_rgb.h"
++#include "hw/audio/esp32_analog_i2c.h"
++#include "hw/audio/esp32_i2s_dac.h"
+ 
+ typedef struct Esp32SocState {
+     /*< private >*/
+@@ -50,6 +52,8 @@ typedef struct Esp32SocState {
+     Esp32EfuseState efuse;
+     Esp32FlashEncryptionState flash_enc;
+     ESPRgbState rgb;
++    Esp32AnalogI2cState analog_i2c;
++    Esp32I2sDacState i2s0;
+ 
+     DWCSDMMCState sdmmc;
+     DeviceState *eth;
+@@ -60,4 +64,5 @@ typedef struct Esp32SocState {
+     MemoryRegion cpu_specific_mem[ESP32_CPU_COUNT];
+ 
+     uint32_t requested_reset;
++    bool rgb_enabled;
+ } Esp32SocState;
+diff --git a/include/hw/xtensa/esp32_intc.h b/include/hw/xtensa/esp32_intc.h
+index 262dbd1..96c7f42 100644
+--- a/include/hw/xtensa/esp32_intc.h
++++ b/include/hw/xtensa/esp32_intc.h
+@@ -34,8 +34,8 @@ typedef struct Esp32IntMatrixState {
+     MemoryRegion iomem;
+     qemu_irq *outputs[ESP32_CPU_COUNT];
+     uint8_t irq_map[ESP32_CPU_COUNT][ESP32_INT_MATRIX_INPUTS];
++    bool input_levels[ESP32_INT_MATRIX_INPUTS];
+ 
+     /* properties */
+     XtensaCPU *cpu[ESP32_CPU_COUNT];
+ } Esp32IntMatrixState;
+-

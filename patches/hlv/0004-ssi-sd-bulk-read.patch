@@ -1,0 +1,599 @@
+diff --git a/hw/sd/core.c b/hw/sd/core.c
+index 4b30218..4f290c0 100644
+--- a/hw/sd/core.c
++++ b/hw/sd/core.c
+@@ -154,9 +154,18 @@ void sdbus_read_data(SDBus *sdbus, void *buf, size_t length)
+     if (card) {
+         SDCardClass *sc = SDMMC_COMMON_GET_CLASS(card);
+ 
+-        for (size_t i = 0; i < length; i++) {
+-            data[i] = sc->read_byte(card);
+-            trace_sdbus_read(sdbus_name(sdbus), data[i]);
++        if (sc->read_data) {
++            sc->read_data(card, data, length);
++            if (trace_event_get_state(TRACE_SDBUS_READ)) {
++                for (size_t i = 0; i < length; i++) {
++                    trace_sdbus_read(sdbus_name(sdbus), data[i]);
++                }
++            }
++        } else {
++            for (size_t i = 0; i < length; i++) {
++                data[i] = sc->read_byte(card);
++                trace_sdbus_read(sdbus_name(sdbus), data[i]);
++            }
+         }
+     }
+ }
+diff --git a/hw/sd/sd.c b/hw/sd/sd.c
+index f9bd03f..e8b87aa 100644
+--- a/hw/sd/sd.c
++++ b/hw/sd/sd.c
+@@ -1577,7 +1577,8 @@ static sd_rsp_type_t emmc_cmd_SEND_EXT_CSD(SDState *sd, SDRequest req)
+ /* CMD9 */
+ static sd_rsp_type_t spi_cmd_SEND_CSD(SDState *sd, SDRequest req)
+ {
+-    if (sd->state != sd_standby_state) {
++    if (sd->state != sd_standby_state &&
++        sd->state != sd_transfer_state) {
+         return sd_invalid_state_for_cmd(sd, req);
+     }
+     return sd_cmd_to_sendingdata(sd, req, sd_req_get_address(sd, req),
+@@ -1596,7 +1597,8 @@ static sd_rsp_type_t sd_cmd_SEND_CSD(SDState *sd, SDRequest req)
+ /* CMD10 */
+ static sd_rsp_type_t spi_cmd_SEND_CID(SDState *sd, SDRequest req)
+ {
+-    if (sd->state != sd_standby_state) {
++    if (sd->state != sd_standby_state &&
++        sd->state != sd_transfer_state) {
+         return sd_invalid_state_for_cmd(sd, req);
+     }
+     return sd_cmd_to_sendingdata(sd, req, sd_req_get_address(sd, req),
+@@ -1649,7 +1651,12 @@ static sd_rsp_type_t sd_cmd_SEND_STATUS(SDState *sd, SDRequest req)
+     }
+ 
+     if (sd_is_spi(sd)) {
+-        return sd_r2_s;
++        /*
++         * The SPI transport converts the native 32-bit card status into the
++         * standard two-byte R2 response.  sd_r2_s is the 128-bit CSD
++         * response and must only be used for SEND_CSD.
++         */
++        return sd_r1;
+     }
+ 
+     return sd_req_rca_same(sd, req) ? sd_r1 : sd_r0;
+@@ -2551,6 +2558,67 @@ uint8_t sd_read_byte(SDState *sd)
+     return ret;
+ }
+ 
++static void sd_read_data(SDState *sd, void *buf, size_t length)
++{
++    uint8_t *data = buf;
++    uint32_t io_len;
++
++    if (sd->current_cmd != 17 && sd->current_cmd != 18) {
++        for (size_t i = 0; i < length; ++i) {
++            data[i] = sd_read_byte(sd);
++        }
++        return;
++    }
++    if (!sd->blk || !blk_is_inserted(sd->blk) || !sd->enable ||
++        sd->state != sd_sendingdata_state ||
++        (sd->card_status & (ADDRESS_ERROR | WP_VIOLATION))) {
++        for (size_t i = 0; i < length; ++i) {
++            data[i] = sd_read_byte(sd);
++        }
++        return;
++    }
++
++    io_len = sd_blk_len(sd);
++    if (length > io_len - sd->data_offset) {
++        for (size_t i = 0; i < length; ++i) {
++            data[i] = sd_read_byte(sd);
++        }
++        return;
++    }
++    if (sd->current_cmd == 18 && sd->data_offset == 0) {
++        if (!address_in_range(sd, "READ_MULTIPLE_BLOCK",
++                              sd->data_start, io_len)) {
++            memset(data, 0, length);
++            return;
++        }
++        sd_blk_read(sd, sd->data_start, io_len);
++    }
++    if (trace_event_get_state(TRACE_SDCARD_READ_DATA)) {
++        for (size_t i = 0; i < length; ++i) {
++            trace_sdcard_read_data(sd->proto->name, sd->last_cmd_name,
++                                   sd->current_cmd,
++                                   sd->data_offset + i,
++                                   sd->data_size, io_len);
++        }
++    }
++    memcpy(data, sd->data + sd->data_offset, length);
++    sd->data_offset += length;
++    if (sd->data_offset < io_len) {
++        return;
++    }
++
++    if (sd->current_cmd == 17) {
++        sd->state = sd_transfer_state;
++        return;
++    }
++
++    sd->data_start += io_len;
++    sd->data_offset = 0;
++    if (sd->multi_blk_cnt != 0 && --sd->multi_blk_cnt == 0) {
++        sd->state = sd_transfer_state;
++    }
++}
++
+ static bool sd_receive_ready(SDState *sd)
+ {
+     return sd->state == sd_receivingdata_state;
+@@ -2832,6 +2900,7 @@ static void sdmmc_common_class_init(ObjectClass *klass, void *data)
+     sc->do_command = sd_do_command;
+     sc->write_byte = sd_write_byte;
+     sc->read_byte = sd_read_byte;
++    sc->read_data = sd_read_data;
+     sc->receive_ready = sd_receive_ready;
+     sc->data_ready = sd_data_ready;
+     sc->enable = sd_enable;
+diff --git a/hw/sd/ssi-sd.c b/hw/sd/ssi-sd.c
+index 1594051..f260b9b 100644
+--- a/hw/sd/ssi-sd.c
++++ b/hw/sd/ssi-sd.c
+@@ -325,6 +325,71 @@ static uint32_t ssi_sd_transfer(SSIPeripheral *dev, uint32_t val)
+     return SSI_DUMMY;
+ }
+ 
++static void ssi_sd_transfer_buf(SSIPeripheral *dev, const uint8_t *tx,
++                                uint8_t *rx, size_t len)
++{
++    ssi_sd_state *s = SSI_SD(dev);
++    uint8_t scratch[512];
++    size_t offset = 0;
++
++    while (offset < len) {
++        uint8_t value = tx ? tx[offset] : SSI_DUMMY;
++
++        if (s->mode == SSI_SD_DATA_READ &&
++            (s->cmd == 17 || s->cmd == 18) &&
++            value == SSI_DUMMY) {
++            size_t chunk = MIN(len - offset,
++                               (size_t)(512 - s->read_bytes));
++            if (tx) {
++                size_t dummy_bytes = 0;
++                while (dummy_bytes < chunk &&
++                       tx[offset + dummy_bytes] == SSI_DUMMY) {
++                    ++dummy_bytes;
++                }
++                chunk = dummy_bytes;
++            }
++            if (chunk) {
++                uint8_t *data = rx ? rx + offset : scratch;
++                sdbus_read_data(&s->sdbus, data, chunk);
++                s->crc16 = crc_ccitt_false(s->crc16, data, chunk);
++                s->read_bytes += chunk;
++                offset += chunk;
++                if (!sdbus_data_ready(&s->sdbus) ||
++                    s->read_bytes == 512) {
++                    s->mode = SSI_SD_DATA_CRC16;
++                }
++                continue;
++            }
++        } else if (s->mode == SSI_SD_DATA_WRITE &&
++                   (s->cmd == 24 || s->cmd == 25)) {
++            size_t chunk = MIN(len - offset,
++                               (size_t)(512 - s->write_bytes));
++            const uint8_t *data = tx ? tx + offset : scratch;
++            if (!tx) {
++                memset(scratch, SSI_DUMMY, chunk);
++            }
++            sdbus_write_data(&s->sdbus, data, chunk);
++            if (rx) {
++                memcpy(rx + offset, data, chunk);
++            }
++            s->write_bytes += chunk;
++            offset += chunk;
++            if (!sdbus_receive_ready(&s->sdbus) ||
++                s->write_bytes == 512) {
++                s->mode = SSI_SD_SKIP_CRC16;
++                s->response_pos = 0;
++            }
++            continue;
++        }
++
++        value = ssi_sd_transfer(dev, value);
++        if (rx) {
++            rx[offset] = value;
++        }
++        ++offset;
++    }
++}
++
+ static int ssi_sd_post_load(void *opaque, int version_id)
+ {
+     ssi_sd_state *s = (ssi_sd_state *)opaque;
+@@ -396,6 +461,7 @@ static void ssi_sd_class_init(ObjectClass *klass, void *data)
+ 
+     k->realize = ssi_sd_realize;
+     k->transfer = ssi_sd_transfer;
++    k->transfer_buf = ssi_sd_transfer_buf;
+     k->cs_polarity = SSI_CS_LOW;
+     dc->vmsd = &vmstate_ssi_sd;
+     device_class_set_legacy_reset(dc, ssi_sd_reset);
+diff --git a/hw/ssi/esp32_spi.c b/hw/ssi/esp32_spi.c
+index f47bfca..810f088 100644
+--- a/hw/ssi/esp32_spi.c
++++ b/hw/ssi/esp32_spi.c
+@@ -10,8 +10,10 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qemu/log.h"
++#include "qemu/main-loop.h"
+ #include "qemu/module.h"
+ #include "sysemu/sysemu.h"
++#include "sysemu/dma.h"
+ #include "hw/hw.h"
+ #include "hw/sysbus.h"
+ #include "hw/registerfields.h"
+@@ -40,9 +42,34 @@ enum {
+ 
+ 
+ #define ESP32_SPI_REG_SIZE    0x1000
++#define ESP32_SPI_DMA_CONF    0x100
++#define ESP32_SPI_DMA_OUT_LINK 0x104
++#define ESP32_SPI_DMA_IN_LINK 0x108
++#define ESP32_SPI_DMA_LINK_ADDR_MASK 0x000fffff
++#define ESP32_SPI_DMA_LINK_START BIT(29)
++#define ESP32_SPI_DMA_DRAM_BASE 0x3ff00000
++#define ESP32_SPI_DMA_MAX_DESCRIPTORS 128
+ 
+ static void esp32_spi_do_command(Esp32SpiState* state, uint32_t cmd_reg);
+ 
++static void esp32_spi_update_irq(Esp32SpiState *s)
++{
++    bool level =
++        FIELD_EX32(s->slave_reg, SPI_SLAVE, TRANS_DONE) &&
++        FIELD_EX32(s->slave_reg, SPI_SLAVE, TRANS_INTEN);
++
++    qemu_set_irq(s->irq, level);
++}
++
++static void esp32_spi_complete(void *opaque)
++{
++    Esp32SpiState *s = ESP32_SPI(opaque);
++
++    s->slave_reg =
++        FIELD_DP32(s->slave_reg, SPI_SLAVE, TRANS_DONE, 1);
++    esp32_spi_update_irq(s);
++}
++
+ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
+ {
+     Esp32SpiState *s = ESP32_SPI(opaque);
+@@ -87,8 +114,17 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
+     case A_SPI_EXT2:
+         r = 0;
+         break;
++    case ESP32_SPI_DMA_CONF:
++        r = s->dma_conf_reg;
++        break;
++    case ESP32_SPI_DMA_OUT_LINK:
++        r = s->dma_out_link_reg;
++        break;
++    case ESP32_SPI_DMA_IN_LINK:
++        r = s->dma_in_link_reg;
++        break;
+     case A_SPI_SLAVE:
+-        r = BIT(R_SPI_SLAVE_TRANS_DONE_SHIFT) | BIT(R_SPI_SLAVE_TRANS_INTEN_SHIFT);
++        r = s->slave_reg;
+         break;
+     }
+     return r;
+@@ -135,6 +171,19 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
+     case A_SPI_PIN:
+         s->pin_reg = value;
+         break;
++    case A_SPI_SLAVE:
++        s->slave_reg = value;
++        esp32_spi_update_irq(s);
++        break;
++    case ESP32_SPI_DMA_CONF:
++        s->dma_conf_reg = value;
++        break;
++    case ESP32_SPI_DMA_OUT_LINK:
++        s->dma_out_link_reg = value;
++        break;
++    case ESP32_SPI_DMA_IN_LINK:
++        s->dma_in_link_reg = value;
++        break;
+     case A_SPI_CMD:
+         esp32_spi_do_command(s, value);
+         break;
+@@ -151,20 +200,102 @@ typedef struct Esp32SpiTransaction {
+     uint32_t* data;
+ } Esp32SpiTransaction;
+ 
+-static void esp32_spi_txrx_buffer(Esp32SpiState *s, void *buf, int tx_bytes, int rx_bytes)
++static void esp32_spi_txrx_buffer(Esp32SpiState *s,
++                                  const void *tx_buf, int tx_bytes,
++                                  void *rx_buf, int rx_bytes)
++{
++    const uint8_t *tx = tx_buf;
++    uint8_t *rx = rx_buf;
++    int common_bytes = MIN(tx_bytes, rx_bytes);
++
++    if (common_bytes) {
++        ssi_transfer_buf(s->spi, tx, rx, common_bytes);
++    }
++    if (tx_bytes > common_bytes) {
++        ssi_transfer_buf(s->spi, tx + common_bytes, NULL,
++                         tx_bytes - common_bytes);
++    } else if (rx_bytes > common_bytes) {
++        ssi_transfer_buf(s->spi, NULL, rx + common_bytes,
++                         rx_bytes - common_bytes);
++    }
++}
++
++static size_t esp32_spi_dma_read(uint32_t link_reg,
++                                 uint8_t *buffer, size_t bytes)
++{
++    hwaddr descriptor =
++        ESP32_SPI_DMA_DRAM_BASE |
++        (link_reg & ESP32_SPI_DMA_LINK_ADDR_MASK);
++    size_t copied = 0;
++
++    for (int i = 0;
++         i < ESP32_SPI_DMA_MAX_DESCRIPTORS && copied < bytes;
++         i++) {
++        uint32_t raw[3];
++        uint32_t flags;
++        uint32_t length;
++        uint32_t data;
++        uint32_t next;
++        size_t chunk;
++
++        cpu_physical_memory_read(descriptor, raw, sizeof(raw));
++        flags = le32_to_cpu(raw[0]);
++        length = extract32(flags, 12, 12);
++        data = le32_to_cpu(raw[1]);
++        next = le32_to_cpu(raw[2]);
++        if (length == 0 || data == 0) {
++            break;
++        }
++        chunk = MIN((size_t)length, bytes - copied);
++        cpu_physical_memory_read(data, buffer + copied, chunk);
++        copied += chunk;
++        if (extract32(flags, 30, 1) || next == 0) {
++            break;
++        }
++        descriptor = next;
++    }
++    return copied;
++}
++
++static size_t esp32_spi_dma_write(uint32_t link_reg,
++                                  const uint8_t *buffer, size_t bytes)
+ {
+-    int bytes = MAX(tx_bytes, rx_bytes);
+-    uint8_t *c_buf = (uint8_t*) buf;
+-    for (int i = 0; i < bytes; ++i) {
+-        uint8_t byte = 0;
+-        if (byte < tx_bytes) {
+-            memcpy(&byte, c_buf + i, 1);
++    hwaddr descriptor =
++        ESP32_SPI_DMA_DRAM_BASE |
++        (link_reg & ESP32_SPI_DMA_LINK_ADDR_MASK);
++    size_t copied = 0;
++
++    for (int i = 0;
++         i < ESP32_SPI_DMA_MAX_DESCRIPTORS && copied < bytes;
++         i++) {
++        uint32_t raw[3];
++        uint32_t flags;
++        uint32_t capacity;
++        uint32_t data;
++        uint32_t next;
++        size_t chunk;
++
++        cpu_physical_memory_read(descriptor, raw, sizeof(raw));
++        flags = le32_to_cpu(raw[0]);
++        capacity = extract32(flags, 0, 12);
++        data = le32_to_cpu(raw[1]);
++        next = le32_to_cpu(raw[2]);
++        if (capacity == 0 || data == 0) {
++            break;
+         }
+-        uint32_t res = ssi_transfer(s->spi, byte);
+-        if (byte < rx_bytes) {
+-            memcpy(c_buf + i, &res, 1);
++        chunk = MIN((size_t)capacity, bytes - copied);
++        cpu_physical_memory_write(data, buffer + copied, chunk);
++        flags = deposit32(flags, 12, 12, chunk);
++        flags = deposit32(flags, 31, 1, 0);
++        raw[0] = cpu_to_le32(flags);
++        cpu_physical_memory_write(descriptor, raw, sizeof(raw[0]));
++        copied += chunk;
++        if (extract32(flags, 30, 1) || next == 0) {
++            break;
+         }
++        descriptor = next;
+     }
++    return copied;
+ }
+ 
+ static void esp32_spi_cs_set(Esp32SpiState *s, int value)
+@@ -176,11 +307,45 @@ static void esp32_spi_cs_set(Esp32SpiState *s, int value)
+ 
+ static void esp32_spi_transaction(Esp32SpiState *s, Esp32SpiTransaction *t)
+ {
++    uint8_t *dma_tx = NULL;
++    uint8_t *dma_rx = NULL;
++    const uint8_t *tx = (uint8_t *)t->data;
++    uint8_t *rx = (uint8_t *)t->data;
++
++    if (t->data_tx_bytes &&
++        (s->dma_out_link_reg & ESP32_SPI_DMA_LINK_START)) {
++        dma_tx = g_malloc(t->data_tx_bytes);
++        if (esp32_spi_dma_read(s->dma_out_link_reg, dma_tx,
++                               t->data_tx_bytes) != t->data_tx_bytes) {
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "esp32_spi: short TX DMA descriptor chain\n");
++        }
++        tx = dma_tx;
++        s->dma_out_link_reg &= ~ESP32_SPI_DMA_LINK_START;
++    }
++    if (t->data_rx_bytes &&
++        (s->dma_in_link_reg & ESP32_SPI_DMA_LINK_START)) {
++        dma_rx = g_malloc0(t->data_rx_bytes);
++        rx = dma_rx;
++        s->dma_in_link_reg &= ~ESP32_SPI_DMA_LINK_START;
++    }
++
+     esp32_spi_cs_set(s, 0);
+-    esp32_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, 0);
+-    esp32_spi_txrx_buffer(s, &t->addr, t->addr_bytes, 0);
+-    esp32_spi_txrx_buffer(s, t->data, t->data_tx_bytes, t->data_rx_bytes);
++    esp32_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, NULL, 0);
++    esp32_spi_txrx_buffer(s, &t->addr, t->addr_bytes, NULL, 0);
++    esp32_spi_txrx_buffer(s, tx, t->data_tx_bytes,
++                          rx, t->data_rx_bytes);
+     esp32_spi_cs_set(s, 1);
++
++    if (dma_rx) {
++        if (esp32_spi_dma_write(s->dma_in_link_reg, dma_rx,
++                                t->data_rx_bytes) != t->data_rx_bytes) {
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "esp32_spi: short RX DMA descriptor chain\n");
++        }
++    }
++    g_free(dma_tx);
++    g_free(dma_rx);
+ }
+ 
+ /* Convert one of the hardware "bitlen" registers to a byte count */
+@@ -275,7 +440,7 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
+ 
+     case R_SPI_CMD_USR_MASK:
+         maybe_encrypt_data(s);
+-        if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) || FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
++        if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND)) {
+             t.cmd = FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_VALUE);
+             t.cmd_bytes = bitlen_to_bytes(FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN));
+         } else {
+@@ -297,7 +462,22 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
+     default:
+         return;
+     }
++    /*
++     * Real ESP32 hardware clears TRANS_DONE while a transaction is in
++     * progress.  Lower the interrupt before completing the synchronous QEMU
++     * transaction so back-to-back queued transfers produce a new IRQ edge.
++     */
++    s->slave_reg =
++        FIELD_DP32(s->slave_reg, SPI_SLAVE, TRANS_DONE, 0);
++    esp32_spi_update_irq(s);
+     esp32_spi_transaction(s, &t);
++    /*
++     * The transfer above is synchronous.  Complete it before returning from
++     * the MMIO write: ESP-IDF polling transfers immediately spin on
++     * SPI_SLAVE.TRANS_DONE, so deferring this to a bottom half deadlocks the
++     * virtual CPU and prevents that bottom half from ever running.
++     */
++    esp32_spi_complete(s);
+ }
+ 
+ 
+@@ -316,6 +496,12 @@ static void esp32_spi_reset_hold(Object *obj, ResetType type)
+     s->user2_reg = FIELD_DP32(0, SPI_USER2, COMMAND_BITLEN, 4);
+     s->user2_reg = FIELD_DP32(s->user2_reg, SPI_USER2, COMMAND_VALUE, 0);
+     s->status_reg = 0;
++    s->slave_reg =
++        FIELD_DP32(0, SPI_SLAVE, TRANS_DONE, 1);
++    s->dma_conf_reg = 0;
++    s->dma_out_link_reg = 0;
++    s->dma_in_link_reg = 0;
++    esp32_spi_update_irq(s);
+ }
+ 
+ static void esp32_spi_realize(DeviceState *dev, Error **errp)
+diff --git a/hw/ssi/ssi.c b/hw/ssi/ssi.c
+index 3f357e8..16a4271 100644
+--- a/hw/ssi/ssi.c
++++ b/hw/ssi/ssi.c
+@@ -168,6 +168,35 @@ uint32_t ssi_transfer(SSIBus *bus, uint32_t val)
+     return r;
+ }
+ 
++void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,
++                      uint8_t *rx, size_t len)
++{
++    BusState *b = BUS(bus);
++    BusChild *kid = QTAILQ_FIRST(&b->children);
++
++    if (kid && !QTAILQ_NEXT(kid, sibling)) {
++        SSIPeripheral *p = SSI_PERIPHERAL(kid->child);
++        SSIPeripheralClass *ssc = p->spc;
++        bool selected =
++            (p->cs && ssc->cs_polarity == SSI_CS_HIGH) ||
++            (!p->cs && ssc->cs_polarity == SSI_CS_LOW) ||
++            ssc->cs_polarity == SSI_CS_NONE;
++
++        if (selected && ssc->transfer_buf &&
++            ssc->transfer_raw == ssi_transfer_raw_default) {
++            ssc->transfer_buf(p, tx, rx, len);
++            return;
++        }
++    }
++
++    for (size_t i = 0; i < len; ++i) {
++        uint32_t value = ssi_transfer(bus, tx ? tx[i] : 0xff);
++        if (rx) {
++            rx[i] = value;
++        }
++    }
++}
++
+ const VMStateDescription vmstate_ssi_peripheral = {
+     .name = "SSISlave",
+     .version_id = 1,
+diff --git a/include/hw/sd/sd.h b/include/hw/sd/sd.h
+index f2458f3..a175659 100644
+--- a/include/hw/sd/sd.h
++++ b/include/hw/sd/sd.h
+@@ -114,6 +114,7 @@ struct SDCardClass {
+      * Return: byte value read
+      */
+     uint8_t (*read_byte)(SDState *sd);
++    void (*read_data)(SDState *sd, void *buf, size_t length);
+     bool (*receive_ready)(SDState *sd);
+     bool (*data_ready)(SDState *sd);
+     void (*set_voltage)(SDState *sd, uint16_t millivolts);
+diff --git a/include/hw/ssi/ssi.h b/include/hw/ssi/ssi.h
+index 3cdcbd5..2ab7400 100644
+--- a/include/hw/ssi/ssi.h
++++ b/include/hw/ssi/ssi.h
+@@ -40,6 +40,13 @@ struct SSIPeripheralClass {
+      * This is called when the device cs is active (true by default).
+      */
+     uint32_t (*transfer)(SSIPeripheral *dev, uint32_t val);
++    /*
++     * Optional batch transfer for DMA-oriented controllers.  The default
++     * bus path preserves byte-at-a-time semantics when this is not supplied.
++     * A NULL tx buffer transmits 0xff; a NULL rx buffer discards input.
++     */
++    void (*transfer_buf)(SSIPeripheral *dev, const uint8_t *tx,
++                         uint8_t *rx, size_t len);
+     /* called when the CS line changes. Optional, devices only need to implement
+      * this if they have side effects associated with the cs line (beyond
+      * tristating the txrx lines).
+@@ -111,6 +118,8 @@ bool ssi_realize_and_unref(DeviceState *dev, SSIBus *bus, Error **errp);
+ SSIBus *ssi_create_bus(DeviceState *parent, const char *name);
+ 
+ uint32_t ssi_transfer(SSIBus *bus, uint32_t val);
++void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,
++                      uint8_t *rx, size_t len);
+ 
+ DeviceState *ssi_get_cs(SSIBus *bus, uint8_t cs_index);
+ 
