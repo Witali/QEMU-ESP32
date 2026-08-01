@@ -21,13 +21,57 @@
 
 
 
+REG32(GPIO_OUT, 0x0004)
+REG32(GPIO_OUT_W1TS, 0x0008)
+REG32(GPIO_OUT_W1TC, 0x000c)
+REG32(GPIO_OUT1, 0x0010)
+REG32(GPIO_OUT1_W1TS, 0x0014)
+REG32(GPIO_OUT1_W1TC, 0x0018)
+
+static void esp32_gpio_set_outputs(Esp32GpioState *s,
+                                   uint32_t out, uint32_t out1)
+{
+    s->out = out;
+    s->out1 = out1 & 0xff;
+    for (int pin = 0; pin < ESP32_GPIO_PIN_COUNT; pin++) {
+        uint32_t level = pin < 32
+            ? extract32(s->out, pin, 1)
+            : extract32(s->out1, pin - 32, 1);
+        qemu_set_irq(s->out_gpio[pin], level);
+    }
+}
+
+void esp32_gpio_set_input(Esp32GpioState *s, unsigned pin, int level)
+{
+    if (pin >= ESP32_GPIO_PIN_COUNT) {
+        return;
+    }
+    if (pin < 32) {
+        s->in = deposit32(s->in, pin, 1, level != 0);
+    } else {
+        s->in1 = deposit32(s->in1, pin - 32, 1, level != 0);
+    }
+}
+
 static uint64_t esp32_gpio_read(void *opaque, hwaddr addr, unsigned int size)
 {
     Esp32GpioState *s = ESP32_GPIO(opaque);
     uint64_t r = 0;
     switch (addr) {
+    case A_GPIO_OUT:
+        r = s->out;
+        break;
+    case A_GPIO_OUT1:
+        r = s->out1;
+        break;
     case A_GPIO_STRAP:
         r = s->strap_mode;
+        break;
+    case A_GPIO_IN:
+        r = s->in;
+        break;
+    case A_GPIO_IN1:
+        r = s->in1;
         break;
 
     default:
@@ -39,6 +83,30 @@ static uint64_t esp32_gpio_read(void *opaque, hwaddr addr, unsigned int size)
 static void esp32_gpio_write(void *opaque, hwaddr addr,
                        uint64_t value, unsigned int size)
 {
+    Esp32GpioState *s = ESP32_GPIO(opaque);
+
+    switch (addr) {
+    case A_GPIO_OUT:
+        esp32_gpio_set_outputs(s, value, s->out1);
+        break;
+    case A_GPIO_OUT_W1TS:
+        esp32_gpio_set_outputs(s, s->out | value, s->out1);
+        break;
+    case A_GPIO_OUT_W1TC:
+        esp32_gpio_set_outputs(s, s->out & ~value, s->out1);
+        break;
+    case A_GPIO_OUT1:
+        esp32_gpio_set_outputs(s, s->out, value);
+        break;
+    case A_GPIO_OUT1_W1TS:
+        esp32_gpio_set_outputs(s, s->out, s->out1 | value);
+        break;
+    case A_GPIO_OUT1_W1TC:
+        esp32_gpio_set_outputs(s, s->out, s->out1 & ~value);
+        break;
+    default:
+        break;
+    }
 }
 
 static const MemoryRegionOps uart_ops = {
@@ -49,6 +117,9 @@ static const MemoryRegionOps uart_ops = {
 
 static void esp32_gpio_reset_hold(Object *obj, ResetType type)
 {
+    Esp32GpioState *s = ESP32_GPIO(obj);
+
+    esp32_gpio_set_outputs(s, 0, 0);
 }
 
 static void esp32_gpio_realize(DeviceState *dev, Error **errp)
@@ -62,11 +133,15 @@ static void esp32_gpio_init(Object *obj)
 
     /* Set the default value for the strap_mode property */
     object_property_set_int(obj, "strap_mode", ESP32_STRAP_MODE_FLASH_BOOT, &error_fatal);
+    /* GPIO0 has an external pull-up and the BOOT button drives it low. */
+    s->in = 1;
 
     memory_region_init_io(&s->iomem, obj, &uart_ops, s,
                           TYPE_ESP32_GPIO, 0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
     sysbus_init_irq(sbd, &s->irq);
+    qdev_init_gpio_out_named(DEVICE(s), s->out_gpio,
+                             "gpio-out", ESP32_GPIO_PIN_COUNT);
 }
 
 static Property esp32_gpio_properties[] = {
