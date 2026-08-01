@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$MsysRoot
+    [string]$MsysRoot,
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,6 +9,22 @@ $repository = $PSScriptRoot
 $runtimeBin = Join-Path $repository "bin"
 $runtimeData = Join-Path $repository "share\qemu"
 $qemu = Join-Path $runtimeBin "qemu-system-xtensa.exe"
+$runtimeMarker = Join-Path $runtimeBin ".qemu-esp32-commit"
+$sourceCommit = (& git -C $repository rev-parse HEAD).Trim()
+$expectedRuntimeMarker = $sourceCommit
+$runtimeReady =
+    (Test-Path -LiteralPath $qemu -PathType Leaf) -and
+    (Test-Path -LiteralPath $runtimeMarker -PathType Leaf) -and
+    ((Get-Content -Raw -LiteralPath $runtimeMarker) -eq
+        $expectedRuntimeMarker)
+if ($runtimeReady -and -not $SkipBuild) {
+    & $qemu --version
+    if ($LASTEXITCODE -ne 0) {
+        throw "The cached QEMU-ESP32 executable smoke check failed."
+    }
+    Write-Host "Native Windows QEMU-ESP32 is ready: $qemu"
+    exit 0
+}
 
 if (-not $MsysRoot) {
     $candidates = @(
@@ -69,13 +86,15 @@ if (-not (Test-Path -LiteralPath (Join-Path $repository `
     }
 }
 
-Write-Host "Building native qemu-system-xtensa.exe"
-& $bash -lc (
-    "export PATH=/mingw64/bin:/usr/bin; cd $quotedRepository && " +
-    "ninja -C build qemu-system-xtensa.exe"
-)
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not build QEMU-ESP32."
+if (-not $SkipBuild) {
+    Write-Host "Building native qemu-system-xtensa.exe"
+    & $bash -lc (
+        "export PATH=/mingw64/bin:/usr/bin; cd $quotedRepository && " +
+        "ninja -C build qemu-system-xtensa.exe"
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not build QEMU-ESP32."
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $runtimeBin | Out-Null
@@ -86,6 +105,8 @@ foreach ($rom in @("esp32-v3-rom.bin", "esp32-v3-rom-app.bin")) {
     Copy-Item -LiteralPath (Join-Path $repository "pc-bios\$rom") `
         -Destination $runtimeData -Force
 }
+Set-Content -LiteralPath $runtimeMarker -Value $expectedRuntimeMarker `
+    -NoNewline
 & $qemu --version
 if ($LASTEXITCODE -ne 0) {
     throw "The QEMU-ESP32 executable smoke check failed."
