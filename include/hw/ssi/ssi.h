@@ -40,6 +40,13 @@ struct SSIPeripheralClass {
      * This is called when the device cs is active (true by default).
      */
     uint32_t (*transfer)(SSIPeripheral *dev, uint32_t val);
+    /*
+     * Optional batch transfer for DMA-oriented controllers.  The default
+     * bus path preserves byte-at-a-time semantics when this is not supplied.
+     * A NULL tx buffer transmits 0xff; a NULL rx buffer discards input.
+     */
+    void (*transfer_buf)(SSIPeripheral *dev, const uint8_t *tx,
+                         uint8_t *rx, size_t len);
     /* called when the CS line changes. Optional, devices only need to implement
      * this if they have side effects associated with the cs line (beyond
      * tristating the txrx lines).
@@ -111,6 +118,8 @@ bool ssi_realize_and_unref(DeviceState *dev, SSIBus *bus, Error **errp);
 SSIBus *ssi_create_bus(DeviceState *parent, const char *name);
 
 uint32_t ssi_transfer(SSIBus *bus, uint32_t val);
+void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,
+                      uint8_t *rx, size_t len);
 
 DeviceState *ssi_get_cs(SSIBus *bus, uint8_t cs_index);
 

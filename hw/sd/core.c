@@ -154,9 +154,18 @@ void sdbus_read_data(SDBus *sdbus, void *buf, size_t length)
     if (card) {
         SDCardClass *sc = SDMMC_COMMON_GET_CLASS(card);
 
-        for (size_t i = 0; i < length; i++) {
-            data[i] = sc->read_byte(card);
-            trace_sdbus_read(sdbus_name(sdbus), data[i]);
+        if (sc->read_data) {
+            sc->read_data(card, data, length);
+            if (trace_event_get_state(TRACE_SDBUS_READ)) {
+                for (size_t i = 0; i < length; i++) {
+                    trace_sdbus_read(sdbus_name(sdbus), data[i]);
+                }
+            }
+        } else {
+            for (size_t i = 0; i < length; i++) {
+                data[i] = sc->read_byte(card);
+                trace_sdbus_read(sdbus_name(sdbus), data[i]);
+            }
         }
     }
 }

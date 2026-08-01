@@ -325,6 +325,71 @@ static uint32_t ssi_sd_transfer(SSIPeripheral *dev, uint32_t val)
     return SSI_DUMMY;
 }
 
+static void ssi_sd_transfer_buf(SSIPeripheral *dev, const uint8_t *tx,
+                                uint8_t *rx, size_t len)
+{
+    ssi_sd_state *s = SSI_SD(dev);
+    uint8_t scratch[512];
+    size_t offset = 0;
+
+    while (offset < len) {
+        uint8_t value = tx ? tx[offset] : SSI_DUMMY;
+
+        if (s->mode == SSI_SD_DATA_READ &&
+            (s->cmd == 17 || s->cmd == 18) &&
+            value == SSI_DUMMY) {
+            size_t chunk = MIN(len - offset,
+                               (size_t)(512 - s->read_bytes));
+            if (tx) {
+                size_t dummy_bytes = 0;
+                while (dummy_bytes < chunk &&
+                       tx[offset + dummy_bytes] == SSI_DUMMY) {
+                    ++dummy_bytes;
+                }
+                chunk = dummy_bytes;
+            }
+            if (chunk) {
+                uint8_t *data = rx ? rx + offset : scratch;
+                sdbus_read_data(&s->sdbus, data, chunk);
+                s->crc16 = crc_ccitt_false(s->crc16, data, chunk);
+                s->read_bytes += chunk;
+                offset += chunk;
+                if (!sdbus_data_ready(&s->sdbus) ||
+                    s->read_bytes == 512) {
+                    s->mode = SSI_SD_DATA_CRC16;
+                }
+                continue;
+            }
+        } else if (s->mode == SSI_SD_DATA_WRITE &&
+                   (s->cmd == 24 || s->cmd == 25)) {
+            size_t chunk = MIN(len - offset,
+                               (size_t)(512 - s->write_bytes));
+            const uint8_t *data = tx ? tx + offset : scratch;
+            if (!tx) {
+                memset(scratch, SSI_DUMMY, chunk);
+            }
+            sdbus_write_data(&s->sdbus, data, chunk);
+            if (rx) {
+                memcpy(rx + offset, data, chunk);
+            }
+            s->write_bytes += chunk;
+            offset += chunk;
+            if (!sdbus_receive_ready(&s->sdbus) ||
+                s->write_bytes == 512) {
+                s->mode = SSI_SD_SKIP_CRC16;
+                s->response_pos = 0;
+            }
+            continue;
+        }
+
+        value = ssi_sd_transfer(dev, value);
+        if (rx) {
+            rx[offset] = value;
+        }
+        ++offset;
+    }
+}
+
 static int ssi_sd_post_load(void *opaque, int version_id)
 {
     ssi_sd_state *s = (ssi_sd_state *)opaque;
@@ -396,6 +461,7 @@ static void ssi_sd_class_init(ObjectClass *klass, void *data)
 
     k->realize = ssi_sd_realize;
     k->transfer = ssi_sd_transfer;
+    k->transfer_buf = ssi_sd_transfer_buf;
     k->cs_polarity = SSI_CS_LOW;
     dc->vmsd = &vmstate_ssi_sd;
     device_class_set_legacy_reset(dc, ssi_sd_reset);

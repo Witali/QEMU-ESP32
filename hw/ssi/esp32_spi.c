@@ -10,8 +10,10 @@
 
 #include "qemu/osdep.h"
 #include "qemu/log.h"
+#include "qemu/main-loop.h"
 #include "qemu/module.h"
 #include "sysemu/sysemu.h"
+#include "sysemu/dma.h"
 #include "hw/hw.h"
 #include "hw/sysbus.h"
 #include "hw/registerfields.h"
@@ -40,8 +42,33 @@ enum {
 
 
 #define ESP32_SPI_REG_SIZE    0x1000
+#define ESP32_SPI_DMA_CONF    0x100
+#define ESP32_SPI_DMA_OUT_LINK 0x104
+#define ESP32_SPI_DMA_IN_LINK 0x108
+#define ESP32_SPI_DMA_LINK_ADDR_MASK 0x000fffff
+#define ESP32_SPI_DMA_LINK_START BIT(29)
+#define ESP32_SPI_DMA_DRAM_BASE 0x3ff00000
+#define ESP32_SPI_DMA_MAX_DESCRIPTORS 128
 
 static void esp32_spi_do_command(Esp32SpiState* state, uint32_t cmd_reg);
+
+static void esp32_spi_update_irq(Esp32SpiState *s)
+{
+    bool level =
+        FIELD_EX32(s->slave_reg, SPI_SLAVE, TRANS_DONE) &&
+        FIELD_EX32(s->slave_reg, SPI_SLAVE, TRANS_INTEN);
+
+    qemu_set_irq(s->irq, level);
+}
+
+static void esp32_spi_complete(void *opaque)
+{
+    Esp32SpiState *s = ESP32_SPI(opaque);
+
+    s->slave_reg =
+        FIELD_DP32(s->slave_reg, SPI_SLAVE, TRANS_DONE, 1);
+    esp32_spi_update_irq(s);
+}
 
 static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
 {
@@ -87,8 +114,17 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
     case A_SPI_EXT2:
         r = 0;
         break;
+    case ESP32_SPI_DMA_CONF:
+        r = s->dma_conf_reg;
+        break;
+    case ESP32_SPI_DMA_OUT_LINK:
+        r = s->dma_out_link_reg;
+        break;
+    case ESP32_SPI_DMA_IN_LINK:
+        r = s->dma_in_link_reg;
+        break;
     case A_SPI_SLAVE:
-        r = BIT(R_SPI_SLAVE_TRANS_DONE_SHIFT) | BIT(R_SPI_SLAVE_TRANS_INTEN_SHIFT);
+        r = s->slave_reg;
         break;
     }
     return r;
@@ -135,6 +171,19 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
     case A_SPI_PIN:
         s->pin_reg = value;
         break;
+    case A_SPI_SLAVE:
+        s->slave_reg = value;
+        esp32_spi_update_irq(s);
+        break;
+    case ESP32_SPI_DMA_CONF:
+        s->dma_conf_reg = value;
+        break;
+    case ESP32_SPI_DMA_OUT_LINK:
+        s->dma_out_link_reg = value;
+        break;
+    case ESP32_SPI_DMA_IN_LINK:
+        s->dma_in_link_reg = value;
+        break;
     case A_SPI_CMD:
         esp32_spi_do_command(s, value);
         break;
@@ -151,20 +200,102 @@ typedef struct Esp32SpiTransaction {
     uint32_t* data;
 } Esp32SpiTransaction;
 
-static void esp32_spi_txrx_buffer(Esp32SpiState *s, void *buf, int tx_bytes, int rx_bytes)
+static void esp32_spi_txrx_buffer(Esp32SpiState *s,
+                                  const void *tx_buf, int tx_bytes,
+                                  void *rx_buf, int rx_bytes)
 {
-    int bytes = MAX(tx_bytes, rx_bytes);
-    uint8_t *c_buf = (uint8_t*) buf;
-    for (int i = 0; i < bytes; ++i) {
-        uint8_t byte = 0;
-        if (byte < tx_bytes) {
-            memcpy(&byte, c_buf + i, 1);
-        }
-        uint32_t res = ssi_transfer(s->spi, byte);
-        if (byte < rx_bytes) {
-            memcpy(c_buf + i, &res, 1);
-        }
+    const uint8_t *tx = tx_buf;
+    uint8_t *rx = rx_buf;
+    int common_bytes = MIN(tx_bytes, rx_bytes);
+
+    if (common_bytes) {
+        ssi_transfer_buf(s->spi, tx, rx, common_bytes);
     }
+    if (tx_bytes > common_bytes) {
+        ssi_transfer_buf(s->spi, tx + common_bytes, NULL,
+                         tx_bytes - common_bytes);
+    } else if (rx_bytes > common_bytes) {
+        ssi_transfer_buf(s->spi, NULL, rx + common_bytes,
+                         rx_bytes - common_bytes);
+    }
+}
+
+static size_t esp32_spi_dma_read(uint32_t link_reg,
+                                 uint8_t *buffer, size_t bytes)
+{
+    hwaddr descriptor =
+        ESP32_SPI_DMA_DRAM_BASE |
+        (link_reg & ESP32_SPI_DMA_LINK_ADDR_MASK);
+    size_t copied = 0;
+
+    for (int i = 0;
+         i < ESP32_SPI_DMA_MAX_DESCRIPTORS && copied < bytes;
+         i++) {
+        uint32_t raw[3];
+        uint32_t flags;
+        uint32_t length;
+        uint32_t data;
+        uint32_t next;
+        size_t chunk;
+
+        cpu_physical_memory_read(descriptor, raw, sizeof(raw));
+        flags = le32_to_cpu(raw[0]);
+        length = extract32(flags, 12, 12);
+        data = le32_to_cpu(raw[1]);
+        next = le32_to_cpu(raw[2]);
+        if (length == 0 || data == 0) {
+            break;
+        }
+        chunk = MIN((size_t)length, bytes - copied);
+        cpu_physical_memory_read(data, buffer + copied, chunk);
+        copied += chunk;
+        if (extract32(flags, 30, 1) || next == 0) {
+            break;
+        }
+        descriptor = next;
+    }
+    return copied;
+}
+
+static size_t esp32_spi_dma_write(uint32_t link_reg,
+                                  const uint8_t *buffer, size_t bytes)
+{
+    hwaddr descriptor =
+        ESP32_SPI_DMA_DRAM_BASE |
+        (link_reg & ESP32_SPI_DMA_LINK_ADDR_MASK);
+    size_t copied = 0;
+
+    for (int i = 0;
+         i < ESP32_SPI_DMA_MAX_DESCRIPTORS && copied < bytes;
+         i++) {
+        uint32_t raw[3];
+        uint32_t flags;
+        uint32_t capacity;
+        uint32_t data;
+        uint32_t next;
+        size_t chunk;
+
+        cpu_physical_memory_read(descriptor, raw, sizeof(raw));
+        flags = le32_to_cpu(raw[0]);
+        capacity = extract32(flags, 0, 12);
+        data = le32_to_cpu(raw[1]);
+        next = le32_to_cpu(raw[2]);
+        if (capacity == 0 || data == 0) {
+            break;
+        }
+        chunk = MIN((size_t)capacity, bytes - copied);
+        cpu_physical_memory_write(data, buffer + copied, chunk);
+        flags = deposit32(flags, 12, 12, chunk);
+        flags = deposit32(flags, 31, 1, 0);
+        raw[0] = cpu_to_le32(flags);
+        cpu_physical_memory_write(descriptor, raw, sizeof(raw[0]));
+        copied += chunk;
+        if (extract32(flags, 30, 1) || next == 0) {
+            break;
+        }
+        descriptor = next;
+    }
+    return copied;
 }
 
 static void esp32_spi_cs_set(Esp32SpiState *s, int value)
@@ -176,11 +307,45 @@ static void esp32_spi_cs_set(Esp32SpiState *s, int value)
 
 static void esp32_spi_transaction(Esp32SpiState *s, Esp32SpiTransaction *t)
 {
+    uint8_t *dma_tx = NULL;
+    uint8_t *dma_rx = NULL;
+    const uint8_t *tx = (uint8_t *)t->data;
+    uint8_t *rx = (uint8_t *)t->data;
+
+    if (t->data_tx_bytes &&
+        (s->dma_out_link_reg & ESP32_SPI_DMA_LINK_START)) {
+        dma_tx = g_malloc(t->data_tx_bytes);
+        if (esp32_spi_dma_read(s->dma_out_link_reg, dma_tx,
+                               t->data_tx_bytes) != t->data_tx_bytes) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "esp32_spi: short TX DMA descriptor chain\n");
+        }
+        tx = dma_tx;
+        s->dma_out_link_reg &= ~ESP32_SPI_DMA_LINK_START;
+    }
+    if (t->data_rx_bytes &&
+        (s->dma_in_link_reg & ESP32_SPI_DMA_LINK_START)) {
+        dma_rx = g_malloc0(t->data_rx_bytes);
+        rx = dma_rx;
+        s->dma_in_link_reg &= ~ESP32_SPI_DMA_LINK_START;
+    }
+
     esp32_spi_cs_set(s, 0);
-    esp32_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, 0);
-    esp32_spi_txrx_buffer(s, &t->addr, t->addr_bytes, 0);
-    esp32_spi_txrx_buffer(s, t->data, t->data_tx_bytes, t->data_rx_bytes);
+    esp32_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, NULL, 0);
+    esp32_spi_txrx_buffer(s, &t->addr, t->addr_bytes, NULL, 0);
+    esp32_spi_txrx_buffer(s, tx, t->data_tx_bytes,
+                          rx, t->data_rx_bytes);
     esp32_spi_cs_set(s, 1);
+
+    if (dma_rx) {
+        if (esp32_spi_dma_write(s->dma_in_link_reg, dma_rx,
+                                t->data_rx_bytes) != t->data_rx_bytes) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "esp32_spi: short RX DMA descriptor chain\n");
+        }
+    }
+    g_free(dma_tx);
+    g_free(dma_rx);
 }
 
 /* Convert one of the hardware "bitlen" registers to a byte count */
@@ -275,7 +440,7 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
 
     case R_SPI_CMD_USR_MASK:
         maybe_encrypt_data(s);
-        if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND) || FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN)) {
+        if (FIELD_EX32(s->user_reg, SPI_USER, COMMAND)) {
             t.cmd = FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_VALUE);
             t.cmd_bytes = bitlen_to_bytes(FIELD_EX32(s->user2_reg, SPI_USER2, COMMAND_BITLEN));
         } else {
@@ -297,7 +462,22 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
     default:
         return;
     }
+    /*
+     * Real ESP32 hardware clears TRANS_DONE while a transaction is in
+     * progress.  Lower the interrupt before completing the synchronous QEMU
+     * transaction so back-to-back queued transfers produce a new IRQ edge.
+     */
+    s->slave_reg =
+        FIELD_DP32(s->slave_reg, SPI_SLAVE, TRANS_DONE, 0);
+    esp32_spi_update_irq(s);
     esp32_spi_transaction(s, &t);
+    /*
+     * The transfer above is synchronous.  Complete it before returning from
+     * the MMIO write: ESP-IDF polling transfers immediately spin on
+     * SPI_SLAVE.TRANS_DONE, so deferring this to a bottom half deadlocks the
+     * virtual CPU and prevents that bottom half from ever running.
+     */
+    esp32_spi_complete(s);
 }
 
 
@@ -316,6 +496,12 @@ static void esp32_spi_reset_hold(Object *obj, ResetType type)
     s->user2_reg = FIELD_DP32(0, SPI_USER2, COMMAND_BITLEN, 4);
     s->user2_reg = FIELD_DP32(s->user2_reg, SPI_USER2, COMMAND_VALUE, 0);
     s->status_reg = 0;
+    s->slave_reg =
+        FIELD_DP32(0, SPI_SLAVE, TRANS_DONE, 1);
+    s->dma_conf_reg = 0;
+    s->dma_out_link_reg = 0;
+    s->dma_in_link_reg = 0;
+    esp32_spi_update_irq(s);
 }
 
 static void esp32_spi_realize(DeviceState *dev, Error **errp)

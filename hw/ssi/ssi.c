@@ -168,6 +168,35 @@ uint32_t ssi_transfer(SSIBus *bus, uint32_t val)
     return r;
 }
 
+void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,
+                      uint8_t *rx, size_t len)
+{
+    BusState *b = BUS(bus);
+    BusChild *kid = QTAILQ_FIRST(&b->children);
+
+    if (kid && !QTAILQ_NEXT(kid, sibling)) {
+        SSIPeripheral *p = SSI_PERIPHERAL(kid->child);
+        SSIPeripheralClass *ssc = p->spc;
+        bool selected =
+            (p->cs && ssc->cs_polarity == SSI_CS_HIGH) ||
+            (!p->cs && ssc->cs_polarity == SSI_CS_LOW) ||
+            ssc->cs_polarity == SSI_CS_NONE;
+
+        if (selected && ssc->transfer_buf &&
+            ssc->transfer_raw == ssi_transfer_raw_default) {
+            ssc->transfer_buf(p, tx, rx, len);
+            return;
+        }
+    }
+
+    for (size_t i = 0; i < len; ++i) {
+        uint32_t value = ssi_transfer(bus, tx ? tx[i] : 0xff);
+        if (rx) {
+            rx[i] = value;
+        }
+    }
+}
+
 const VMStateDescription vmstate_ssi_peripheral = {
     .name = "SSISlave",
     .version_id = 1,

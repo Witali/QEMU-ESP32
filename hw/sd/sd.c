@@ -1577,7 +1577,8 @@ static sd_rsp_type_t emmc_cmd_SEND_EXT_CSD(SDState *sd, SDRequest req)
 /* CMD9 */
 static sd_rsp_type_t spi_cmd_SEND_CSD(SDState *sd, SDRequest req)
 {
-    if (sd->state != sd_standby_state) {
+    if (sd->state != sd_standby_state &&
+        sd->state != sd_transfer_state) {
         return sd_invalid_state_for_cmd(sd, req);
     }
     return sd_cmd_to_sendingdata(sd, req, sd_req_get_address(sd, req),
@@ -1596,7 +1597,8 @@ static sd_rsp_type_t sd_cmd_SEND_CSD(SDState *sd, SDRequest req)
 /* CMD10 */
 static sd_rsp_type_t spi_cmd_SEND_CID(SDState *sd, SDRequest req)
 {
-    if (sd->state != sd_standby_state) {
+    if (sd->state != sd_standby_state &&
+        sd->state != sd_transfer_state) {
         return sd_invalid_state_for_cmd(sd, req);
     }
     return sd_cmd_to_sendingdata(sd, req, sd_req_get_address(sd, req),
@@ -1649,7 +1651,12 @@ static sd_rsp_type_t sd_cmd_SEND_STATUS(SDState *sd, SDRequest req)
     }
 
     if (sd_is_spi(sd)) {
-        return sd_r2_s;
+        /*
+         * The SPI transport converts the native 32-bit card status into the
+         * standard two-byte R2 response.  sd_r2_s is the 128-bit CSD
+         * response and must only be used for SEND_CSD.
+         */
+        return sd_r1;
     }
 
     return sd_req_rca_same(sd, req) ? sd_r1 : sd_r0;
@@ -2551,6 +2558,67 @@ uint8_t sd_read_byte(SDState *sd)
     return ret;
 }
 
+static void sd_read_data(SDState *sd, void *buf, size_t length)
+{
+    uint8_t *data = buf;
+    uint32_t io_len;
+
+    if (sd->current_cmd != 17 && sd->current_cmd != 18) {
+        for (size_t i = 0; i < length; ++i) {
+            data[i] = sd_read_byte(sd);
+        }
+        return;
+    }
+    if (!sd->blk || !blk_is_inserted(sd->blk) || !sd->enable ||
+        sd->state != sd_sendingdata_state ||
+        (sd->card_status & (ADDRESS_ERROR | WP_VIOLATION))) {
+        for (size_t i = 0; i < length; ++i) {
+            data[i] = sd_read_byte(sd);
+        }
+        return;
+    }
+
+    io_len = sd_blk_len(sd);
+    if (length > io_len - sd->data_offset) {
+        for (size_t i = 0; i < length; ++i) {
+            data[i] = sd_read_byte(sd);
+        }
+        return;
+    }
+    if (sd->current_cmd == 18 && sd->data_offset == 0) {
+        if (!address_in_range(sd, "READ_MULTIPLE_BLOCK",
+                              sd->data_start, io_len)) {
+            memset(data, 0, length);
+            return;
+        }
+        sd_blk_read(sd, sd->data_start, io_len);
+    }
+    if (trace_event_get_state(TRACE_SDCARD_READ_DATA)) {
+        for (size_t i = 0; i < length; ++i) {
+            trace_sdcard_read_data(sd->proto->name, sd->last_cmd_name,
+                                   sd->current_cmd,
+                                   sd->data_offset + i,
+                                   sd->data_size, io_len);
+        }
+    }
+    memcpy(data, sd->data + sd->data_offset, length);
+    sd->data_offset += length;
+    if (sd->data_offset < io_len) {
+        return;
+    }
+
+    if (sd->current_cmd == 17) {
+        sd->state = sd_transfer_state;
+        return;
+    }
+
+    sd->data_start += io_len;
+    sd->data_offset = 0;
+    if (sd->multi_blk_cnt != 0 && --sd->multi_blk_cnt == 0) {
+        sd->state = sd_transfer_state;
+    }
+}
+
 static bool sd_receive_ready(SDState *sd)
 {
     return sd->state == sd_receivingdata_state;
@@ -2832,6 +2900,7 @@ static void sdmmc_common_class_init(ObjectClass *klass, void *data)
     sc->do_command = sd_do_command;
     sc->write_byte = sd_write_byte;
     sc->read_byte = sd_read_byte;
+    sc->read_data = sd_read_data;
     sc->receive_ready = sd_receive_ready;
     sc->data_ready = sd_data_ready;
     sc->enable = sd_enable;
