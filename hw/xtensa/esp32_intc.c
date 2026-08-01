@@ -27,6 +27,14 @@ static void esp32_intmatrix_update_output(Esp32IntMatrixState *s,
 {
     bool level = false;
 
+    /*
+     * ESP-IDF routes disabled peripheral sources to CPU interrupt 6.
+     * That number is also an internal timer interrupt and must never be
+     * driven by the external interrupt matrix.
+     */
+    if (out_index == INTMATRIX_UNINT_VALUE) {
+        return;
+    }
     if (s->outputs[cpu_index] == NULL) {
         return;
     }

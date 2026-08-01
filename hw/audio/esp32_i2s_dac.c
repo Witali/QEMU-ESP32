@@ -66,6 +66,7 @@ static void esp32_i2s_dac_stop(Esp32I2sDacState *s)
 {
     s->link_running = false;
     s->current_descriptor = 0;
+    s->dma_deadline_ns = 0;
     timer_del(s->dma_timer);
     esp32_i2s_dac_set_active(s, false);
 }
@@ -110,7 +111,19 @@ static void esp32_i2s_dac_schedule(Esp32I2sDacState *s,
     const uint64_t delay = MAX(
         1ULL,
         (uint64_t)sample_count * NANOSECONDS_PER_SECOND / s->sample_rate);
-    timer_mod(s->dma_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + delay);
+    const uint64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    uint64_t deadline = s->dma_deadline_ns + delay;
+
+    /*
+     * Keep the DAC on one continuous sample clock.  Scheduling each
+     * descriptor from "now" permanently accumulated any late timer
+     * dispatch and produced audible gaps under a busy emulated SPI bus.
+     */
+    if (deadline <= now) {
+        deadline = now + 1;
+    }
+    s->dma_deadline_ns = deadline;
+    timer_mod(s->dma_timer, deadline);
 }
 
 static void esp32_i2s_dac_dma_timer(void *opaque)
@@ -231,9 +244,9 @@ static void esp32_i2s_dac_write(void *opaque, hwaddr address,
                 DMA_DESCRIPTOR_PREFIX | (val & I2S_OUT_LINK_ADDR_MASK);
             s->link_running = true;
             esp32_i2s_dac_set_active(s, true);
-            timer_mod(
-                s->dma_timer,
-                qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1);
+            s->dma_deadline_ns =
+                qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1;
+            timer_mod(s->dma_timer, s->dma_deadline_ns);
         }
         break;
     default:

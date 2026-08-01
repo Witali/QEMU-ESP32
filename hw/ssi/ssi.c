@@ -22,6 +22,7 @@
 
 struct SSIBus {
     BusState parent_obj;
+    uint32_t idle_value;
 };
 
 #define TYPE_SSI_BUS "SSI"
@@ -154,18 +155,35 @@ SSIBus *ssi_create_bus(DeviceState *parent, const char *name)
     return SSI_BUS(bus);
 }
 
+void ssi_set_idle_value(SSIBus *bus, uint32_t value)
+{
+    bus->idle_value = value;
+}
+
 uint32_t ssi_transfer(SSIBus *bus, uint32_t val)
 {
     BusState *b = BUS(bus);
     BusChild *kid;
     uint32_t r = 0;
+    bool selected = false;
 
     QTAILQ_FOREACH(kid, &b->children, sibling) {
         SSIPeripheral *p = SSI_PERIPHERAL(kid->child);
+
+        /*
+         * A custom transfer_raw implementation controls chip selection
+         * itself, so it must always be given priority over the bus idle
+         * value.
+         */
+        selected |=
+            p->spc->transfer_raw != ssi_transfer_raw_default ||
+            (p->cs && p->spc->cs_polarity == SSI_CS_HIGH) ||
+            (!p->cs && p->spc->cs_polarity == SSI_CS_LOW) ||
+            p->spc->cs_polarity == SSI_CS_NONE;
         r |= p->spc->transfer_raw(p, val);
     }
 
-    return r;
+    return selected ? r : bus->idle_value;
 }
 
 void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,

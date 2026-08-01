@@ -263,6 +263,74 @@ static uint32_t st7789_transfer(SSIPeripheral *dev, uint32_t data)
     return 0;
 }
 
+static void st7789_transfer_buf(SSIPeripheral *dev, const uint8_t *tx,
+                                uint8_t *rx, size_t len)
+{
+    ST7789State *s = ST7789(dev);
+    size_t offset = 0;
+
+    if (rx) {
+        memset(rx, 0, len);
+    }
+
+    /*
+     * Commands and short argument transfers are rare, so preserve their
+     * byte-at-a-time behavior.  Pixel DMA is the hot path: a CIF frame sends
+     * 153600 bytes, which must not become that many QOM callback calls.
+     */
+    if (!tx || !s->dc || s->command != ST7789_CMD_RAMWR ||
+        (s->colmod & 0x77) != 0x55) {
+        while (offset < len) {
+            st7789_transfer(dev, tx ? tx[offset] : 0xff);
+            offset++;
+        }
+        return;
+    }
+
+    if (s->pixel_byte && offset < len) {
+        st7789_write_pixel_byte(s, tx[offset++]);
+    }
+
+    while (offset + 1 < len) {
+        size_t pixels = (len - offset) / 2;
+        size_t row_pixels;
+
+        if (s->column > s->column_end) {
+            s->column = s->column_start;
+        }
+        if (s->row > s->row_end) {
+            s->row = s->row_start;
+        }
+
+        row_pixels = s->column_end - s->column + 1;
+        row_pixels = MIN(row_pixels, pixels);
+
+        if (s->little_endian && s->column < ST7789_WIDTH &&
+            s->row < ST7789_HEIGHT &&
+            row_pixels <= ST7789_WIDTH - s->column) {
+            memcpy(&s->framebuffer[s->row * ST7789_WIDTH + s->column],
+                   tx + offset, row_pixels * sizeof(uint16_t));
+            s->redraw = true;
+            offset += row_pixels * sizeof(uint16_t);
+            s->column += row_pixels;
+            if (s->column > s->column_end) {
+                s->column = s->column_start;
+                s->row++;
+                if (s->row > s->row_end) {
+                    s->row = s->row_start;
+                }
+            }
+        } else {
+            st7789_write_pixel_byte(s, tx[offset++]);
+            st7789_write_pixel_byte(s, tx[offset++]);
+        }
+    }
+
+    if (offset < len) {
+        st7789_write_pixel_byte(s, tx[offset]);
+    }
+}
+
 static uint32_t st7789_rgb_to_surface(DisplaySurface *surface,
                                       uint8_t red, uint8_t green,
                                       uint8_t blue)
@@ -720,6 +788,7 @@ static void st7789_class_init(ObjectClass *klass, void *data)
 
     ssi->realize = st7789_realize;
     ssi->transfer = st7789_transfer;
+    ssi->transfer_buf = st7789_transfer_buf;
     ssi->cs_polarity = SSI_CS_LOW;
     dc->vmsd = &vmstate_st7789;
     dc->unrealize = st7789_unrealize;

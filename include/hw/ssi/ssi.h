@@ -117,6 +117,11 @@ bool ssi_realize_and_unref(DeviceState *dev, SSIBus *bus, Error **errp);
 /* Master interface.  */
 SSIBus *ssi_create_bus(DeviceState *parent, const char *name);
 
+/*
+ * Set the value sampled by a master while no peripheral is selected.
+ * The default is zero, preserving the upstream SSI bus behaviour.
+ */
+void ssi_set_idle_value(SSIBus *bus, uint32_t value);
 uint32_t ssi_transfer(SSIBus *bus, uint32_t val);
 void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,
                       uint8_t *rx, size_t len);

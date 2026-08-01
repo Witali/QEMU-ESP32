@@ -24,6 +24,7 @@ struct Esp32I2sDacState {
     uint32_t sample_rate;
     uint32_t volume;
     bool link_running;
+    uint64_t dma_deadline_ns;
 
     uint8_t audio_buffer[ESP32_I2S_DAC_AUDIO_BUFFER_BYTES];
     uint32_t audio_read;

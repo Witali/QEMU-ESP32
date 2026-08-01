@@ -808,6 +808,12 @@ static void esp32_machine_init_sd(Esp32MachineState *ms)
             DeviceState *sd_adapter;
             SSIBus *spi_bus = ss->spi[3].spi;
 
+            /*
+             * The ESP32-2432S028 board pulls the SD MISO line high while
+             * GPIO5 deasserts CS.  ESP-IDF uses this state to poll whether
+             * the card is ready before issuing each command.
+             */
+            ssi_set_idle_value(spi_bus, 0xff);
             sd_adapter = ssi_create_peripheral(spi_bus, "ssi-sd");
             qdev_connect_gpio_out_named(
                 DEVICE(&ss->gpio), "gpio-out", 5,
