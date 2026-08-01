@@ -22,20 +22,38 @@
 
 #define IRQ_MAP(cpu, input) s->irq_map[cpu][input]
 
+static void esp32_intmatrix_update_output(Esp32IntMatrixState *s,
+                                          int cpu_index, int out_index)
+{
+    bool level = false;
+
+    if (s->outputs[cpu_index] == NULL) {
+        return;
+    }
+    for (int source = 0; source < ESP32_INT_MATRIX_INPUTS; source++) {
+        if (IRQ_MAP(cpu_index, source) == out_index &&
+            s->input_levels[source]) {
+            level = true;
+            break;
+        }
+    }
+    for (int int_index = 0;
+         int_index < s->cpu[cpu_index]->env.config->nextint;
+         int_index++) {
+        if (s->cpu[cpu_index]->env.config->extint[int_index] == out_index) {
+            qemu_set_irq(s->outputs[cpu_index][int_index], level);
+            break;
+        }
+    }
+}
+
 static void esp32_intmatrix_irq_handler(void *opaque, int n, int level)
 {
     Esp32IntMatrixState *s = ESP32_INTMATRIX(opaque);
-    for (int i = 0; i < ESP32_CPU_COUNT; ++i) {
-        if (s->outputs[i] == NULL) {
-            continue;
-        }
-        int out_index = IRQ_MAP(i, n);
-        for (int int_index = 0; int_index < s->cpu[i]->env.config->nextint; ++int_index) {
-            if (s->cpu[i]->env.config->extint[int_index] == out_index) {
-                qemu_set_irq(s->outputs[i][int_index], level);
-                break;
-            }
-        }
+
+    s->input_levels[n] = level;
+    for (int cpu = 0; cpu < ESP32_CPU_COUNT; cpu++) {
+        esp32_intmatrix_update_output(s, cpu, IRQ_MAP(cpu, n));
     }
 }
 
@@ -63,7 +81,13 @@ static void esp32_intmatrix_write(void* opaque, hwaddr addr, uint64_t value, uns
     Esp32IntMatrixState *s = ESP32_INTMATRIX(opaque);
     uint8_t* map_entry = get_map_entry(s, addr);
     if (map_entry != NULL) {
+        int entry = addr / sizeof(uint32_t);
+        int cpu = entry / ESP32_INT_MATRIX_INPUTS;
+        int old_output = *map_entry;
+
         *map_entry = value & 0x1f;
+        esp32_intmatrix_update_output(s, cpu, old_output);
+        esp32_intmatrix_update_output(s, cpu, *map_entry);
     }
 }
 
@@ -77,6 +101,7 @@ static void esp32_intmatrix_reset_hold(Object *obj, ResetType type)
 {
     Esp32IntMatrixState *s = ESP32_INTMATRIX(obj);
     memset(s->irq_map, INTMATRIX_UNINT_VALUE, sizeof(s->irq_map));
+    memset(s->input_levels, 0, sizeof(s->input_levels));
     for (int i = 0; i < ESP32_CPU_COUNT; ++i) {
         if (s->outputs[i] == NULL) {
             continue;

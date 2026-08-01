@@ -13,6 +13,7 @@
 #include "qapi/error.h"
 #include "sysemu/sysemu.h"
 #include "hw/sysbus.h"
+#include "hw/qdev-properties.h"
 #include "hw/irq.h"
 #include "hw/display/esp_rgb.h"
 #include "ui/console.h"
@@ -265,6 +266,13 @@ static void esp_rgb_realize(DeviceState *dev, Error **errp)
     assert(s->intram != NULL);
     /* Create an address space for internal RAM so that we can read data from it on GUI update */
     address_space_init(&s->intram_as, s->intram, "esp.rgb.intram_as");
+
+    if (s->console_enabled) {
+        s->con = graphic_console_init(DEVICE(s), 0, &fb_ops, s);
+        update_rgb_surface(s);
+        memset(surface_data(qemu_console_surface(s->con)), 0,
+               (s->width * s->height * s->bpp) / 8);
+    }
 }
 
 
@@ -289,15 +297,6 @@ static void esp_rgb_init(Object *obj)
     s->height = ESP_RGB_MAX_HEIGHT;
     s->update_area = false;
     s->bpp = DEFAULT_BPP;
-
-    if (s->con == NULL) {
-        s->con = graphic_console_init(DEVICE(s), 0, &fb_ops, s);
-        /* Resize and use corrent color bpp*/
-        update_rgb_surface(s);
-        void * data = surface_data(qemu_console_surface(s->con));
-        /* Initialize the window to black */
-        memset(data, 0, (s->width * s->height * s->bpp) / 8);
-    }
 
     /* Create a memory region that can be used as a framebuffer by the guest */
     memory_region_init_ram(&s->vram, OBJECT(s), "esp-rgb-vram", ESP_RGB_MAX_VRAM_SIZE, &error_abort);
@@ -326,9 +325,15 @@ static void esp_rgb_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     ResettableClass *rc = RESETTABLE_CLASS(klass);
+    static const Property properties[] = {
+        DEFINE_PROP_BOOL("console-enabled", ESPRgbState,
+                         console_enabled, true),
+        DEFINE_PROP_END_OF_LIST(),
+    };
 
     rc->phases.hold = esp_rgb_reset_hold;
     dc->realize = esp_rgb_realize;
+    device_class_set_props(dc, properties);
 }
 
 static const TypeInfo esp_rgb_info = {
