@@ -45,8 +45,8 @@ $env:MSYSTEM = "MINGW64"
 $msysRepository = (& $bash -lc (
     "cygpath -a -u " + (Quote-Bash $repository)
 ) | Select-Object -First 1).Trim()
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not convert the QEMU-ESP32 path for MSYS2."
+if (-not $msysRepository) {
+    throw "MSYS2 returned an empty QEMU-ESP32 path."
 }
 $quotedRepository = Quote-Bash $msysRepository
 
