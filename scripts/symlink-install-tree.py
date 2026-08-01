@@ -5,6 +5,7 @@ import errno
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -28,6 +29,11 @@ for source, dest in json.loads(out).items():
     try:
         os.symlink(source, bundle_dest)
     except BaseException as e:
+        if (isinstance(e, OSError) and os.name == 'nt'
+                and e.winerror == 1314):
+            if os.path.exists(source):
+                shutil.copy2(source, bundle_dest)
+            continue
         if not isinstance(e, OSError) or e.errno != errno.EEXIST:
             if os.name == 'nt':
                 print('Please enable Developer Mode to support soft link '
