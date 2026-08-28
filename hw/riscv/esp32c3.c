@@ -262,7 +262,7 @@ static void esp32c3_init_openeth(Esp32C3MachineState *ms)
     MemoryRegion* sys_mem = get_system_memory();
 
     /* Create a new OpenCores Ethernet component */
-    DeviceState* open_eth_dev = qemu_create_nic_device("open_eth", true, NULL);
+    DeviceState* open_eth_dev = qemu_create_nic_device("open_eth", false, NULL);
     if (!open_eth_dev) {
         return;
     }
@@ -479,7 +479,12 @@ static void esp32c3_machine_init(MachineState *machine)
     /* ESP32-C3 Wi-Fi MAC register and DMA interface. */
     {
         MemoryRegion *mr;
+        NICInfo *nd = qemu_find_nic_info(TYPE_ESP32C3_WIFI, true, NULL);
 
+        ms->wifi.radio = &ms->radio;
+        if (nd) {
+            qdev_set_nic_properties(DEVICE(&ms->wifi), nd);
+        }
         sysbus_realize(SYS_BUS_DEVICE(&ms->wifi), &error_fatal);
         mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->wifi), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_WIFI_BASE, mr, 0);
@@ -752,6 +757,7 @@ static void esp32c3_machine_class_init(ObjectClass *oc, void *data)
     mc->init = esp32c3_machine_init;
     mc->max_cpus = 1;
     mc->default_cpus = 1;
+    mc->default_nic = TYPE_ESP32C3_WIFI;
     machine_add_audiodev_property(mc);
     // 0x4f600
     mc->default_ram_size = 400 * 1024;

@@ -13,13 +13,43 @@
 
 #include "qemu/osdep.h"
 #include "hw/net/esp32c3_wifi.h"
+#include "hw/net/esp32c3_wifi_80211.h"
 #include "hw/irq.h"
+#include "hw/qdev-properties.h"
 #include "exec/address-spaces.h"
 #include "qemu/log.h"
+#include "qemu/guest-random.h"
+
+static int esp32c3_wifi_match_mac(const uint8_t *actual,
+                                  const uint8_t *configured)
+{
+    static const uint8_t broadcast[6] = { [0 ... 5] = 0xff };
+
+    return !memcmp(actual, configured, sizeof(broadcast)) ||
+           !memcmp(actual, broadcast, sizeof(broadcast));
+}
 
 static void esp32c3_wifi_update_irq(Esp32C3WifiState *s)
 {
     qemu_set_irq(s->irq, s->interrupt_status != 0);
+}
+
+int esp32c3_wifi_channel(Esp32C3WifiState *s)
+{
+    return s->radio ? s->radio->channel : s->channel;
+}
+
+void esp32c3_wifi_set_packet_status(Esp32C3WifiState *s, uint32_t status)
+{
+    if (s->radio) {
+        esp32c3_radio_set_packet_status(s->radio, status);
+    }
+}
+
+void Esp32_WLAN_frame_delivered(Esp32C3WifiState *s)
+{
+    s->interrupt_status |= ESP32C3_WIFI_INT_TX_DONE;
+    esp32c3_wifi_update_irq(s);
 }
 
 static int esp32c3_wifi_tx_slot(hwaddr addr)
@@ -43,6 +73,7 @@ static void esp32c3_wifi_complete_tx(Esp32C3WifiState *s, int slot,
                                      uint32_t value)
 {
     Esp32C3WifiDmaDesc desc;
+    mac80211_frame frame = { 0 };
     hwaddr desc_addr;
     MemTxResult result;
 
@@ -50,16 +81,101 @@ static void esp32c3_wifi_complete_tx(Esp32C3WifiState *s, int slot,
     result = address_space_read(&address_space_memory, desc_addr,
                                 MEMTXATTRS_UNSPECIFIED, &desc,
                                 sizeof(desc));
-    if (result != MEMTX_OK) {
+    if (result != MEMTX_OK || desc.length > sizeof(frame.data_and_fcs) +
+                                                 IEEE80211_HEADER_SIZE) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "esp32c3-wifi: failed to read TX descriptor at "
                       "0x%08" HWADDR_PRIx "\n", desc_addr);
         s->tx_error |= 1u << slot;
     } else {
-        s->tx_done |= 1u << slot;
+        result = address_space_read(&address_space_memory, desc.address,
+                                    MEMTXATTRS_UNSPECIFIED, &frame,
+                                    desc.length);
+        if (result == MEMTX_OK) {
+            frame.frame_length = desc.length;
+            Esp32_WLAN_handle_frame(s, &frame);
+            s->tx_done |= 1u << slot;
+        } else {
+            s->tx_error |= 1u << slot;
+        }
     }
 
     s->interrupt_status |= ESP32C3_WIFI_INT_TX_DONE;
+    esp32c3_wifi_update_irq(s);
+}
+
+void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
+                     int signal_strength)
+{
+    Esp32C3WifiDmaDesc desc;
+    wifi_pkt_rx_ctrl_c3_t metadata = { 0 };
+    uint8_t *packet;
+    uint32_t jitter;
+    size_t packet_length;
+    MemTxResult result;
+
+    if (!s->rx_desc || length <= 0) {
+        return;
+    }
+
+    result = address_space_read(&address_space_memory, s->rx_desc,
+                                MEMTXATTRS_UNSPECIFIED, &desc, sizeof(desc));
+    if (result != MEMTX_OK) {
+        return;
+    }
+
+    packet_length = sizeof(metadata) + length;
+    if (packet_length > desc.size) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "esp32c3-wifi: RX packet (%zu bytes) exceeds DMA "
+                      "buffer (%u bytes)\n", packet_length, desc.size);
+        return;
+    }
+
+    qemu_guest_getrandom_nofail(&jitter, sizeof(jitter));
+    metadata.rssi = signal_strength + (jitter % 10) + 96;
+    metadata.rate = 11;
+    metadata.sig_len = length;
+    metadata.sig_len_copy = length;
+    metadata.legacy_length = length;
+    metadata.noise_floor = -97;
+    metadata.channel = esp32c3_wifi_channel(s);
+    metadata.timestamp = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000;
+
+    if (esp32c3_wifi_match_mac(frame->destination_address,
+                               (uint8_t *)s->regs + 0x40)) {
+        metadata.damatch0 = 1;
+    }
+    if (esp32c3_wifi_match_mac(frame->destination_address,
+                               (uint8_t *)s->regs + 0x48)) {
+        metadata.damatch1 = 1;
+    }
+    if (esp32c3_wifi_match_mac(frame->bssid_address,
+                               (uint8_t *)s->regs + 0x40)) {
+        metadata.bssidmatch0 = 1;
+    }
+    if (esp32c3_wifi_match_mac(frame->bssid_address,
+                               (uint8_t *)s->regs + 0x48)) {
+        metadata.bssidmatch1 = 1;
+    }
+
+    packet = g_malloc(packet_length);
+    memcpy(packet, &metadata, sizeof(metadata));
+    memcpy(packet + sizeof(metadata), frame, length);
+    result = address_space_write(&address_space_memory, desc.address,
+                                 MEMTXATTRS_UNSPECIFIED, packet,
+                                 packet_length);
+    g_free(packet);
+    if (result != MEMTX_OK) {
+        return;
+    }
+
+    desc.length = packet_length;
+    desc.eof = 1;
+    address_space_write(&address_space_memory, s->rx_desc,
+                        MEMTXATTRS_UNSPECIFIED, &desc, sizeof(uint32_t));
+    s->rx_desc = desc.next;
+    s->interrupt_status |= ESP32C3_WIFI_INT_RX_DONE;
     esp32c3_wifi_update_irq(s);
 }
 
@@ -74,7 +190,9 @@ static uint64_t esp32c3_wifi_read(void *opaque, hwaddr addr,
     case ESP32C3_WIFI_TX_ERROR:
         return s->tx_error;
     case ESP32C3_WIFI_TX_DONE:
-        return s->tx_done;
+        return 1 | s->tx_done;
+    case ESP32C3_WIFI_TX_DMA_STATUS:
+        return 1;
     case ESP32C3_WIFI_RX_NEXT_DESC:
         return s->rx_desc;
     case ESP32C3_WIFI_RX_LAST_DESC:
@@ -138,7 +256,15 @@ static void esp32c3_wifi_reset(DeviceState *dev)
     s->tx_done = 0;
     s->tx_error = 0;
     s->rx_desc = 0;
+    Esp32_WLAN_reset_ap(s);
     esp32c3_wifi_update_irq(s);
+}
+
+static void esp32c3_wifi_realize(DeviceState *dev, Error **errp)
+{
+    Esp32C3WifiState *s = ESP32C3_WIFI(dev);
+
+    Esp32_WLAN_setup_ap(dev, s);
 }
 
 static void esp32c3_wifi_init(Object *obj)
@@ -154,8 +280,14 @@ static void esp32c3_wifi_init(Object *obj)
 static void esp32c3_wifi_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    static const Property properties[] = {
+        DEFINE_NIC_PROPERTIES(Esp32C3WifiState, conf),
+        DEFINE_PROP_END_OF_LIST(),
+    };
 
     dc->desc = "ESP32-C3 Wi-Fi MAC";
+    dc->realize = esp32c3_wifi_realize;
+    device_class_set_props(dc, properties);
     device_class_set_legacy_reset(dc, esp32c3_wifi_reset);
     set_bit(DEVICE_CATEGORY_NETWORK, dc->categories);
 }

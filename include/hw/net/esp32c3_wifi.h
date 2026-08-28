@@ -10,6 +10,16 @@
 #pragma once
 
 #include "hw/sysbus.h"
+#include "net/net.h"
+#include "qemu/timer.h"
+#include "hw/misc/esp32c3_radio.h"
+
+struct mac80211_frame;
+
+enum Esp32C3WifiMode {
+    Esp32_Mode_Station,
+    Esp32_Mode_SoftAP,
+};
 
 #define TYPE_ESP32C3_WIFI "esp32c3-wifi"
 OBJECT_DECLARE_SIMPLE_TYPE(Esp32C3WifiState, ESP32C3_WIFI)
@@ -34,6 +44,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Esp32C3WifiState, ESP32C3_WIFI)
 
 /* PLCP0 contains a 20-bit DMA descriptor address and the TX trigger. */
 #define ESP32C3_WIFI_TX_PLCP0_BASE    0xd08
+#define ESP32C3_WIFI_TX_DMA_STATUS    0xd14
 #define ESP32C3_WIFI_TX_SLOT_STRIDE   0x008
 #define ESP32C3_WIFI_TX_TRIGGER_MASK  0xc0000000u
 #define ESP32C3_WIFI_DMA_ADDR_MASK    0x000fffffu
@@ -62,4 +73,38 @@ struct Esp32C3WifiState {
     uint32_t tx_done;
     uint32_t tx_error;
     uint32_t rx_desc;
+
+    NICConf conf;
+    NICState *nic;
+    Esp32C3RadioState *radio;
+
+    uint32_t ap_state;
+    int inject_queue_size;
+    struct mac80211_frame *inject_queue;
+    bool inject_timer_running;
+    unsigned int inject_sequence_number;
+    int beacon_ap;
+    QEMUTimer *beacon_timer;
+    QEMUTimer *inject_timer;
+    QEMUTimer *wait_ack_timer;
+
+    uint8_t ipaddr[4];
+    uint8_t macaddr[6];
+    uint8_t ap_ipaddr[4];
+    uint8_t ap_macaddr[6];
+    uint8_t associated_ap_macaddr[6];
+    uint8_t softap_macaddr[6];
+    uint8_t mode;
+    uint8_t channel;
 };
+
+int esp32c3_wifi_channel(Esp32C3WifiState *s);
+void esp32c3_wifi_set_packet_status(Esp32C3WifiState *s, uint32_t status);
+
+void Esp32_WLAN_handle_frame(Esp32C3WifiState *s,
+                             struct mac80211_frame *frame);
+void Esp32_WLAN_setup_ap(DeviceState *dev, Esp32C3WifiState *s);
+void Esp32_WLAN_reset_ap(Esp32C3WifiState *s);
+void Esp32_sendFrame(Esp32C3WifiState *s, struct mac80211_frame *frame,
+                     int length, int signal_strength);
+void Esp32_WLAN_frame_delivered(Esp32C3WifiState *s);
