@@ -48,7 +48,8 @@
 #include "hw/misc/esp32c3_xts_aes.h"
 #include "hw/misc/esp32c3_jtag.h"
 #include "hw/dma/esp32c3_gdma.h"
-#include "hw/display/esp_rgb.h"
+#include "hw/display/ssd1306.h"
+#include "hw/i2c/esp32c3_i2c.h"
 #include "hw/net/can/esp32c3_twai.h"
 #include "hw/audio/esp32c3_pcm.h"
 
@@ -89,7 +90,7 @@ struct Esp32C3MachineState {
     ESP32C3SpiState spi1;
     ESP32C3RtcCntlState rtccntl;
     ESP32C3UsbJtagState jtag;
-    ESPRgbState rgb;
+    Esp32C3I2CState i2c;
     Esp32C3TWAIState twai;
     Esp32C3PcmState pcm;
 };
@@ -118,7 +119,6 @@ enum MemoryRegions {
     ESP32C3_MEMREGION_RTCFAST,
     ESP32C3_MEMREGION_DCACHE,
     ESP32C3_MEMREGION_ICACHE,
-    ESP32C3_MEMREGION_FRAMEBUF,
 };
 
 #define ESP32C3_INTERNAL_SRAM0_SIZE (16*1024)
@@ -135,8 +135,6 @@ static const struct MemmapEntry {
     [ESP32C3_MEMREGION_RTCFAST] = { 0x50000000,   0x2000 },
     [ESP32C3_MEMREGION_DCACHE]  = { 0x3c000000, 0x800000 },
     [ESP32C3_MEMREGION_ICACHE]  = { 0x42000000, 0x800000 },
-    /* Virtual Framebuffer, used for the graphical interface */
-    [ESP32C3_MEMREGION_FRAMEBUF] = { 0x20000000, ESP_RGB_MAX_VRAM_SIZE }
 };
 
 
@@ -424,7 +422,8 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "spi1", &ms->spi1, TYPE_ESP32C3_SPI);
     object_initialize_child(OBJECT(machine), "rtccntl", &ms->rtccntl, TYPE_ESP32C3_RTC_CNTL);
     object_initialize_child(OBJECT(machine), "jtag", &ms->jtag, TYPE_ESP32C3_JTAG);
-    object_initialize_child(OBJECT(machine), "rgb", &ms->rgb, TYPE_ESP_RGB);
+    object_initialize_child(OBJECT(machine), "i2c", &ms->i2c,
+                            TYPE_ESP32C3_I2C);
     object_initialize_child(OBJECT(machine), "twai", &ms->twai, TYPE_ESP32C3_TWAI);
     object_initialize_child(OBJECT(machine), "pcm", &ms->pcm, TYPE_ESP32C3_PCM);
 
@@ -643,14 +642,27 @@ static void esp32c3_machine_init(MachineState *machine)
         memory_region_add_subregion_overlap(sys_mem, DR_REG_AES_XTS_BASE, mr, 0);
     }
 
-    /* RGB display realization */
+    /* I2C controller and the board's 72x40 SSD1306 panel. */
     {
-        /* Give the internal RAM memory region to the display */
-        ms->rgb.intram = dram;
-        sysbus_realize(SYS_BUS_DEVICE(&ms->rgb), &error_fatal);
-        MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->rgb), 0);
-        memory_region_add_subregion_overlap(sys_mem, DR_REG_FRAMEBUF_BASE, mr, 0);
-        memory_region_add_subregion_overlap(sys_mem, esp32c3_memmap[ESP32C3_MEMREGION_FRAMEBUF].base, &ms->rgb.vram, 0);
+        DeviceState *oled;
+        MemoryRegion *mr;
+
+        sysbus_realize(SYS_BUS_DEVICE(&ms->i2c), &error_fatal);
+        mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->i2c), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_I2C_EXT_BASE,
+                                            mr, 0);
+        sysbus_connect_irq(
+            SYS_BUS_DEVICE(&ms->i2c), 0,
+            qdev_get_gpio_in(DEVICE(&ms->intmatrix),
+                             ETS_I2C_EXT0_INTR_SOURCE));
+
+        oled = DEVICE(i2c_slave_new(TYPE_SSD1306, 0x3c));
+        qdev_prop_set_uint32(oled, "visible-width", 72);
+        qdev_prop_set_uint32(oled, "visible-height", 40);
+        qdev_prop_set_uint32(oled, "column-offset", 28);
+        qdev_prop_set_uint32(oled, "magnify", 4);
+        i2c_slave_realize_and_unref(I2C_SLAVE(oled), ms->i2c.bus,
+                                    &error_fatal);
     }
 
     /* QEMU-only signed 16-bit, 48 kHz stereo PCM output. */
