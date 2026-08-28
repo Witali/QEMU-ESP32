@@ -50,6 +50,7 @@
 #include "hw/dma/esp32c3_gdma.h"
 #include "hw/display/esp_rgb.h"
 #include "hw/net/can/esp32c3_twai.h"
+#include "hw/audio/esp32c3_pcm.h"
 
 #define ESP32C3_IO_WARNING          0
 
@@ -90,6 +91,7 @@ struct Esp32C3MachineState {
     ESP32C3UsbJtagState jtag;
     ESPRgbState rgb;
     Esp32C3TWAIState twai;
+    Esp32C3PcmState pcm;
 };
 
 /* Fake register used by ESP-IDF application to determine whether the code is running on real hardware or on QEMU */
@@ -424,6 +426,7 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "jtag", &ms->jtag, TYPE_ESP32C3_JTAG);
     object_initialize_child(OBJECT(machine), "rgb", &ms->rgb, TYPE_ESP_RGB);
     object_initialize_child(OBJECT(machine), "twai", &ms->twai, TYPE_ESP32C3_TWAI);
+    object_initialize_child(OBJECT(machine), "pcm", &ms->pcm, TYPE_ESP32C3_PCM);
 
     /* Realize all the I/O peripherals we depend on */
 
@@ -650,6 +653,18 @@ static void esp32c3_machine_init(MachineState *machine)
         memory_region_add_subregion_overlap(sys_mem, esp32c3_memmap[ESP32C3_MEMREGION_FRAMEBUF].base, &ms->rgb.vram, 0);
     }
 
+    /* QEMU-only signed 16-bit, 48 kHz stereo PCM output. */
+    {
+        if (machine->audiodev) {
+            qdev_prop_set_string(DEVICE(&ms->pcm), "audiodev",
+                                 machine->audiodev);
+        }
+        sysbus_realize(SYS_BUS_DEVICE(&ms->pcm), &error_fatal);
+        MemoryRegion *mr =
+            sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->pcm), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_I2S0_BASE, mr, 0);
+    }
+
     /* TWAI peripheral realization */
     sysbus_realize(SYS_BUS_DEVICE(&ms->twai), &error_fatal);
     MemoryRegion *twai_mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->twai), 0);
@@ -668,6 +683,7 @@ static void esp32c3_machine_class_init(ObjectClass *oc, void *data)
     mc->init = esp32c3_machine_init;
     mc->max_cpus = 1;
     mc->default_cpus = 1;
+    machine_add_audiodev_property(mc);
     // 0x4f600
     mc->default_ram_size = 400 * 1024;
 }

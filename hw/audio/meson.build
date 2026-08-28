@@ -3,6 +3,9 @@ system_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files(
   'esp32_analog_i2c.c',
   'esp32_i2s_dac.c',
 ))
+system_ss.add(when: 'CONFIG_RISCV_ESP32C3', if_true: files(
+  'esp32c3_pcm.c',
+))
 system_ss.add(when: 'CONFIG_AC97', if_true: files('ac97.c'))
 system_ss.add(when: 'CONFIG_ADLIB', if_true: files('fmopl.c', 'adlib.c'))
 system_ss.add(when: 'CONFIG_ASC', if_true: files('asc.c'))
