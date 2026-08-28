@@ -52,6 +52,7 @@
 #include "hw/i2c/esp32c3_i2c.h"
 #include "hw/net/can/esp32c3_twai.h"
 #include "hw/audio/esp32c3_pcm.h"
+#include "hw/net/esp32c3_wifi.h"
 
 #define ESP32C3_IO_WARNING          0
 
@@ -93,6 +94,7 @@ struct Esp32C3MachineState {
     Esp32C3I2CState i2c;
     Esp32C3TWAIState twai;
     Esp32C3PcmState pcm;
+    Esp32C3WifiState wifi;
 };
 
 /* Fake register used by ESP-IDF application to determine whether the code is running on real hardware or on QEMU */
@@ -426,6 +428,8 @@ static void esp32c3_machine_init(MachineState *machine)
                             TYPE_ESP32C3_I2C);
     object_initialize_child(OBJECT(machine), "twai", &ms->twai, TYPE_ESP32C3_TWAI);
     object_initialize_child(OBJECT(machine), "pcm", &ms->pcm, TYPE_ESP32C3_PCM);
+    object_initialize_child(OBJECT(machine), "wifi", &ms->wifi,
+                            TYPE_ESP32C3_WIFI);
 
     /* Realize all the I/O peripherals we depend on */
 
@@ -449,6 +453,18 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* Initialize OpenCores Ethernet controller now sicne it requires the interrupt matrix */
     esp32c3_init_openeth(ms);
+
+    /* ESP32-C3 Wi-Fi MAC register and DMA interface. */
+    {
+        MemoryRegion *mr;
+
+        sysbus_realize(SYS_BUS_DEVICE(&ms->wifi), &error_fatal);
+        mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->wifi), 0);
+        memory_region_add_subregion_overlap(sys_mem, DR_REG_WIFI_BASE, mr, 0);
+        sysbus_connect_irq(
+            SYS_BUS_DEVICE(&ms->wifi), 0,
+            qdev_get_gpio_in(intmatrix_dev, ETS_WIFI_MAC_INTR_SOURCE));
+    }
 
     /* USB Serial JTAG realization */
     {
