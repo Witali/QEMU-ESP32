@@ -197,10 +197,16 @@ static void rgb_update(void* opaque)
         const int height = s->to_y - s->from_y;
         const int bytes_per_pixel = bpp/8;
         const int total_bytes = width * height * bytes_per_pixel;
+        const uint8_t *vram_data = NULL;
 
-        if (address_space_access_valid(&s->vram_as, src, total_bytes, false, MEMTXATTRS_UNSPECIFIED)) {
-            src_as = &s->vram_as;
-        } else if (address_space_access_valid(&s->intram_as, src, total_bytes, false, MEMTXATTRS_UNSPECIFIED)) {
+        /* vram is also mapped into the guest system address space.  Accessing
+         * that MemoryRegion through a second AddressSpace is unreliable after
+         * it has acquired a parent, so use its RAM backing directly. */
+        if ((uint64_t) src + total_bytes <= memory_region_size(&s->vram)) {
+            vram_data = (uint8_t *) memory_region_get_ram_ptr(&s->vram) + src;
+        } else if (address_space_access_valid(&s->intram_as, src,
+                                              total_bytes, false,
+                                              MEMTXATTRS_UNSPECIFIED)) {
             src_as = &s->intram_as;
         } else {
             s->update_area = false;
@@ -218,11 +224,20 @@ static void rgb_update(void* opaque)
 
             /* Copy the pixels to the framebuffer */
             for (int i = 0; i < height; i++) {
-                dma_memory_read(src_as, src, dest, width * bytes_per_pixel, MEMTXATTRS_UNSPECIFIED);
+                if (vram_data) {
+                    memcpy(dest, vram_data, width * bytes_per_pixel);
+                    vram_data += width * bytes_per_pixel;
+                } else {
+                    dma_memory_read(src_as, src, dest,
+                                    width * bytes_per_pixel,
+                                    MEMTXATTRS_UNSPECIFIED);
+                }
                 /* Go to the next line in the destination */
                 dest += s->width * bytes_per_pixel;
                 /* Same goes for the source */
-                src += width * bytes_per_pixel;
+                if (src_as) {
+                    src += width * bytes_per_pixel;
+                }
             }
 
             dpy_gfx_update(s->con, s->from_x, s->from_y, width, height);
