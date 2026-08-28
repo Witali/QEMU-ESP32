@@ -97,10 +97,14 @@ struct Esp32C3MachineState {
     Esp32C3PcmState pcm;
     Esp32C3WifiState wifi;
     Esp32C3RadioState radio;
+
+    uint32_t syscon_wifi_clk_en;
 };
 
 /* Fake register used by ESP-IDF application to determine whether the code is running on real hardware or on QEMU */
 #define A_SYSCON_ORIGIN_REG     0x3F8
+#define A_SYSCON_WIFI_CLK_EN_REG 0x014
+#define SYSCON_WIFI_CLK_EN_RESET 0xfffce030
 /* Temporary macro for generating a random value from register SYSCON_RND_DATA_REG */
 #define A_SYSCON_RND_DATA_REG   0x0B0
 
@@ -149,8 +153,14 @@ static bool addr_in_range(hwaddr addr, hwaddr start, hwaddr end)
 
 static uint64_t esp32c3_io_read(void *opaque, hwaddr addr, unsigned int size)
 {
+    Esp32C3MachineState *ms = ESP32C3_MACHINE(opaque);
+    hwaddr absolute_addr = addr + ESP32C3_IO_START_ADDR;
+
     if (addr_in_range(addr + ESP32C3_IO_START_ADDR, DR_REG_RTC_I2C_BASE, DR_REG_RTC_I2C_BASE + 0x100)) {
         return (uint32_t) 0xffffff;
+    } else if (absolute_addr == DR_REG_SYSCON_BASE +
+                                A_SYSCON_WIFI_CLK_EN_REG) {
+        return ms->syscon_wifi_clk_en;
     } else if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE + A_SYSCON_ORIGIN_REG) {
         /* Return "QEMU" as a 32-bit value */
         return 0x51454d55;
@@ -174,6 +184,13 @@ static uint64_t esp32c3_io_read(void *opaque, hwaddr addr, unsigned int size)
 
 static void esp32c3_io_write(void *opaque, hwaddr addr, uint64_t value, unsigned int size)
 {
+    Esp32C3MachineState *ms = ESP32C3_MACHINE(opaque);
+
+    if (addr + ESP32C3_IO_START_ADDR == DR_REG_SYSCON_BASE +
+                                             A_SYSCON_WIFI_CLK_EN_REG) {
+        ms->syscon_wifi_clk_en = value;
+        return;
+    }
 #if ESP32C3_IO_WARNING
         warn_report("[ESP32-C3] Unsupported write $%08lx = %08lx\n", ESP32C3_IO_START_ADDR + addr, value);
 #endif
@@ -385,8 +402,9 @@ static void esp32c3_machine_init(MachineState *machine)
 
     qdev_realize(DEVICE(&ms->soc), NULL, &error_fatal);
 
+    ms->syscon_wifi_clk_en = SYSCON_WIFI_CLK_EN_RESET;
     memory_region_init_io(&ms->iomem, OBJECT(&ms->soc), &esp32c3_io_ops,
-                          NULL, "esp32c3.iomem", 0xd1000);
+                          ms, "esp32c3.iomem", 0xd1000);
     memory_region_add_subregion(sys_mem, ESP32C3_IO_START_ADDR, &ms->iomem);
 
 
