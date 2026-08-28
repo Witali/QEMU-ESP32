@@ -75,8 +75,8 @@ $FirmwareBuild = Resolve-ExistingDirectory $FirmwareBuild `
 
 if ([string]::IsNullOrWhiteSpace($QemuExecutable)) {
     $qemuCandidates = @(
-        (Join-Path $repository "build\qemu-system-riscv32.exe"),
-        (Join-Path $repository "bin\qemu-system-riscv32.exe")
+        (Join-Path $repository "bin\qemu-system-riscv32.exe"),
+        (Join-Path $repository "build\qemu-system-riscv32.exe")
     )
     $QemuExecutable = $qemuCandidates |
         Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
@@ -236,6 +236,7 @@ if ($AdditionalQemuArguments) {
 }
 
 Write-Host "Starting unmodified yoRadio production firmware"
+Write-Host "  QEMU: $QemuExecutable"
 Write-Host "  Wi-Fi: $Ssid; profile: $NetworkProfile"
 if ($WebPort -ne 0) {
     Write-Host "  Web UI: http://127.0.0.1:$WebPort/"
