@@ -277,4 +277,3 @@ typedef struct arp_header_t {
 }arp_header_t;
 
 #endif // esp32c3_wifi_80211_h
-

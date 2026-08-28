@@ -74,7 +74,7 @@ void Esp32_WLAN_init_ap_frame(Esp32C3WifiState *s, mac80211_frame *frame) {
         else
             memcpy(frame->source_address, s->softap_macaddr, 6);
         memcpy(frame->bssid_address, s->softap_macaddr, 6);
-    } 
+    }
 
 }
 
@@ -144,7 +144,7 @@ static mac80211_frame *Esp32_WLAN_create_dhcp_frame(Esp32C3WifiState *s, int cmd
         {.src_port_l=0x44,.dest_port_l=0x43},
         {.htype=1,.hlen=6,.xid=0x1d3d00,.chaddr={0,0,0,0,0,0},
         .magic_cookie=0x63538263}
-    };    
+    };
     memcpy(req.dhcp.chaddr, s->macaddr, 6);
     int len=sizeof(req)+cmd_size;
     req.ipheader.len_h=len>>8;
@@ -169,7 +169,7 @@ mac80211_frame *Esp32_WLAN_create_dhcp_request(Esp32C3WifiState *s, uint8_t *ip)
     };
     return Esp32_WLAN_create_dhcp_frame(s, sizeof(dhcp_commands),dhcp_commands);
 }
-    
+
 mac80211_frame *Esp32_WLAN_create_dhcp_discover(Esp32C3WifiState *s) {
     uint8_t dhcp_commands[]={
         0x35, 1, 1,
@@ -304,4 +304,3 @@ mac80211_frame *Esp32_WLAN_create_data_packet(Esp32C3WifiState *s, const uint8_t
     frame->frame_length = IEEE80211_HEADER_SIZE + size-6;
     return frame;
 }
-

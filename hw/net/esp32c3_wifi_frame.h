@@ -54,4 +54,3 @@ struct mac80211_frame *Esp32_WLAN_create_dhcp_request(Esp32C3WifiState *s, uint8
 void insertCRC(mac80211_frame *frame);
 
 #endif // esp32c3_wifi_frame_h
-
