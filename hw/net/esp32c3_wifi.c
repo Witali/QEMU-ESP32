@@ -282,6 +282,13 @@ static void esp32c3_wifi_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     static const Property properties[] = {
         DEFINE_NIC_PROPERTIES(Esp32C3WifiState, conf),
+        DEFINE_PROP_UINT64("bandwidth-bps", Esp32C3WifiState,
+                           bandwidth_bps, 4000000),
+        DEFINE_PROP_UINT32("latency-ms", Esp32C3WifiState, latency_ms, 20),
+        DEFINE_PROP_UINT32("jitter-ms", Esp32C3WifiState, jitter_ms, 5),
+        DEFINE_PROP_UINT32("loss-ppm", Esp32C3WifiState, loss_ppm, 0),
+        DEFINE_PROP_UINT32("queue-limit", Esp32C3WifiState, queue_limit, 64),
+        DEFINE_PROP_BOOL("link-down", Esp32C3WifiState, link_down, false),
         DEFINE_PROP_END_OF_LIST(),
     };
 

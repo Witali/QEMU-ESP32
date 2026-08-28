@@ -15,6 +15,7 @@
 #include "hw/misc/esp32c3_radio.h"
 
 struct mac80211_frame;
+struct Esp32C3WifiEthernetPacket;
 
 enum Esp32C3WifiMode {
     Esp32_Mode_Station,
@@ -87,6 +88,20 @@ struct Esp32C3WifiState {
     QEMUTimer *beacon_timer;
     QEMUTimer *inject_timer;
     QEMUTimer *wait_ack_timer;
+    QEMUTimer *ethernet_tx_timer;
+
+    struct Esp32C3WifiEthernetPacket *ethernet_tx_queue;
+    struct Esp32C3WifiEthernetPacket *ethernet_tx_tail;
+    uint32_t ethernet_tx_queue_size;
+    int64_t rx_serial_ready_ns;
+    int64_t tx_serial_ready_ns;
+
+    uint64_t bandwidth_bps;
+    uint32_t latency_ms;
+    uint32_t jitter_ms;
+    uint32_t loss_ppm;
+    uint32_t queue_limit;
+    bool link_down;
 
     uint8_t ipaddr[4];
     uint8_t macaddr[6];
