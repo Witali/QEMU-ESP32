@@ -28,6 +28,7 @@
 #define BIT_SET(reg, bit)   ((reg) & BIT(bit))
 #define CLEAR_BIT(reg, bit) do { (reg) &= ~BIT(bit); } while(0)
 #define SET_BIT(reg, bit)   do { (reg) |= BIT(bit); } while(0)
+#define BIT64(bit)          (UINT64_C(1) << (bit))
 
 
 static int esp32c3_get_output_line_level(ESP32C3IntMatrixState *s, int line)
@@ -36,7 +37,7 @@ static int esp32c3_get_output_line_level(ESP32C3IntMatrixState *s, int line)
 
     for (int i = 0; level_shared == 0 && i < ESP32C3_INT_MATRIX_INPUTS; i++) {
         const uint_fast8_t mapped = s->irq_map[i];
-        if (mapped == line && (s->irq_levels & BIT(i)))
+        if (mapped == line && (s->irq_levels & BIT64(i)))
         {
             level_shared |= 1;
         }
@@ -90,12 +91,12 @@ static void esp32c3_intmatrix_irq_handler(void *opaque, int n, int level)
     level = level ? 1 : 0;
 
     /* Save the former level of the pin */
-    const int former_level = BIT_SET(s->irq_levels, n) ? 1 : 0;
+    const int former_level = (s->irq_levels & BIT64(n)) ? 1 : 0;
 
     if (level) {
-        SET_BIT(s->irq_levels, n);
+        s->irq_levels |= BIT64(n);
     } else {
-        CLEAR_BIT(s->irq_levels, n);
+        s->irq_levels &= ~BIT64(n);
     }
 
     /* Nothing to do if the level is unchanged. */
