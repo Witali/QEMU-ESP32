@@ -9,8 +9,12 @@ or patched.
 From PowerShell:
 
 ```powershell
+.\setup-qemu-esp32c3-windows.ps1
 .\run-yoradio-esp32c3.ps1
 ```
+
+The setup script uses a dedicated `build-esp32c3` directory and builds only
+`riscv32-softmmu`; the existing Xtensa build remains separate.
 
 The default `hardware` network profile uses 4 Mbit/s, 20 ms latency, 5 ms
 jitter, a 64-packet queue, and no random loss. Available profiles are `ideal`,
