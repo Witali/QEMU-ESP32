@@ -53,6 +53,7 @@
 #include "hw/net/can/esp32c3_twai.h"
 #include "hw/audio/esp32c3_pcm.h"
 #include "hw/net/esp32c3_wifi.h"
+#include "hw/misc/esp32c3_radio.h"
 
 #define ESP32C3_IO_WARNING          0
 
@@ -95,6 +96,7 @@ struct Esp32C3MachineState {
     Esp32C3TWAIState twai;
     Esp32C3PcmState pcm;
     Esp32C3WifiState wifi;
+    Esp32C3RadioState radio;
 };
 
 /* Fake register used by ESP-IDF application to determine whether the code is running on real hardware or on QEMU */
@@ -430,6 +432,8 @@ static void esp32c3_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "pcm", &ms->pcm, TYPE_ESP32C3_PCM);
     object_initialize_child(OBJECT(machine), "wifi", &ms->wifi,
                             TYPE_ESP32C3_WIFI);
+    object_initialize_child(OBJECT(machine), "radio", &ms->radio,
+                            TYPE_ESP32C3_RADIO);
 
     /* Realize all the I/O peripherals we depend on */
 
@@ -464,6 +468,25 @@ static void esp32c3_machine_init(MachineState *machine)
         sysbus_connect_irq(
             SYS_BUS_DEVICE(&ms->wifi), 0,
             qdev_get_gpio_in(intmatrix_dev, ETS_WIFI_MAC_INTR_SOURCE));
+    }
+
+    /* Closed ESP-IDF Wi-Fi libraries poll these radio hardware banks. */
+    {
+        static const hwaddr base[ESP32C3_RADIO_REGION_COUNT] = {
+            [ESP32C3_RADIO_REGION_ANA] = DR_REG_RTC_I2C_BASE,
+            [ESP32C3_RADIO_REGION_PHYA] = DR_REG_PHYA_BASE,
+            [ESP32C3_RADIO_REGION_FE] = DR_REG_FE_BASE,
+            [ESP32C3_RADIO_REGION_PWR] = DR_REG_PWR_MANAGER_BASE,
+        };
+        int i;
+
+        sysbus_realize(SYS_BUS_DEVICE(&ms->radio), &error_fatal);
+        for (i = 0; i < ESP32C3_RADIO_REGION_COUNT; i++) {
+            MemoryRegion *mr = sysbus_mmio_get_region(
+                SYS_BUS_DEVICE(&ms->radio), i);
+
+            memory_region_add_subregion_overlap(sys_mem, base[i], mr, 0);
+        }
     }
 
     /* USB Serial JTAG realization */

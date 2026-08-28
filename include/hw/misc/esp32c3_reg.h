@@ -43,6 +43,8 @@
 #define DR_REG_TWAI_BASE                        0x6002B000
 #define DR_REG_I2S0_BASE                        0x6002D000
 #define DR_REG_WIFI_BASE                        0x60033000
+#define DR_REG_PHYA_BASE                        0x60034000
+#define DR_REG_PWR_MANAGER_BASE                 0x60035000
 #define DR_REG_APB_SARADC_BASE                  0x60040000
 #define DR_REG_USB_SERIAL_JTAG_BASE             0x60043000
 #define DR_REG_AES_XTS_BASE                     0x600CC000
