@@ -71,9 +71,9 @@ def run_guest(exe, build, machine, state, rom, seconds, profile=None):
         uart = (state / 'uart.log').read_text(errors='replace')
         checks = {
             'running': status['running'],
-            'display_has_content': sum(value != 0 for value in pixels) > 1000,
+            'console_has_content': sum(value != 0 for value in pixels) > 1000,
             'display_dimensions': (width, height) == ((320, 284) if machine.startswith('esp32,') else (288, 160)),
-            'no_panic_or_watchdog': not any(text in uart for text in ('Guru Meditation', 'abort()', 'watchdog got triggered')),
+            'no_panic_or_watchdog': not any(text in uart for text in ('Guru Meditation', 'abort()', 'watchdog got triggered', 'assert failed:', "panic'ed", 'Interrupt wdt timeout')),
             'source_flash_unchanged': sha(image) == before,
             'source_artifacts_unchanged': all(sha(build / name) == value for name, value in sources.items()),
         }
@@ -82,7 +82,9 @@ def run_guest(exe, build, machine, state, rom, seconds, profile=None):
                   'machine': machine, 'duration_seconds': seconds,
                   'qemu_sha256': sha(exe), 'firmware_sources': sources,
                   'pixel_sha256': hashlib.sha256(pixels).hexdigest(),
-                  'nonzero_bytes': sum(value != 0 for value in pixels)}
+                  'nonzero_bytes': sum(value != 0 for value in pixels),
+                  'lcd_area_nonzero_bytes': sum(value != 0 for value in pixels[:width * min(height, 240) * 3]),
+                  'cyd_boot_scope': 'Boot, console and panic checks; LCD transactions are verified separately by QTest' if machine.startswith('esp32,') else None}
         save_json(state / 'report.json', report)
         return report
     finally:

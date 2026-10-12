@@ -114,6 +114,9 @@ python tools/test_esp_legacy.py `
 
 The CYD snapshot used here has no provisioned NVS. Its existing NVS/SPIFFS,
 Wi-Fi initialization and DAC warnings remain possible in this isolated boot
-test; it verifies boot/display compatibility, not complete radio playback.
+test. The minimal image has a black LCD area in both the previous and new
+binaries; console controls contribute its nonzero pixels. Boot/console
+comparison and separate LCD/SD MMIO checks establish compatibility of those
+paths; this is not a successful CYD application-screen or radio-playback test.
 To compare screenshots with a previous binary, add `--baseline-xtensa` before
 installing the replacement. Network/audio validation remains separate.
