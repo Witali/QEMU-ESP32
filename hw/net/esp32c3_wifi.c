@@ -20,6 +20,26 @@
 #include "qemu/log.h"
 #include "qemu/guest-random.h"
 
+/* C2 ROM uses RX 0x64/0x68 and TX PLCP0 0xce8; C3 uses 0x84/0x88
+ * and 0xd08. Keep the shared 802.11 and DMA implementation. */
+static hwaddr wifi_register(Esp32C3WifiState *s, hwaddr addr)
+{
+    if (!s->c2_layout) return addr;
+    switch (addr) {
+    case 0x064: return ESP32C3_WIFI_RX_CTRL;
+    case 0x068: return ESP32C3_WIFI_RX_BASE_DESC;
+    case 0x06c: return ESP32C3_WIFI_RX_NEXT_DESC;
+    case 0x070: return ESP32C3_WIFI_RX_LAST_DESC;
+    case 0xcf8: return addr;
+    case 0xcf4: return ESP32C3_WIFI_TX_DMA_STATUS;
+    default:
+        if (addr >= 0xcc8 && addr <= 0xce8 && !(addr & 7)) return addr + 0x20;
+        if ((addr >= 0x084 && addr <= 0x090) ||
+            (addr >= 0xce8 && addr <= 0xd14)) return addr + 0x1000;
+        return addr;
+    }
+}
+
 static int esp32c3_wifi_match_mac(const uint8_t *actual,
                                   const uint8_t *configured)
 {
@@ -94,7 +114,7 @@ static void esp32c3_wifi_complete_tx(Esp32C3WifiState *s, int slot,
         if (result == MEMTX_OK) {
             frame.frame_length = desc.length;
             Esp32_WLAN_handle_frame(s, &frame);
-            s->tx_done |= 1u << slot;
+            s->tx_done |= 1u << (slot + (s->c2_layout ? 16 : 0));
         } else {
             s->tx_error |= 1u << slot;
         }
@@ -133,7 +153,7 @@ void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
     }
 
     qemu_guest_getrandom_nofail(&jitter, sizeof(jitter));
-    metadata.rssi = signal_strength + (jitter % 10) + 96;
+    metadata.rssi = signal_strength + (jitter % 10) + (s->c2_layout ? 0 : 96);
     metadata.rate = 11;
     metadata.sig_len = length;
     metadata.sig_len_copy = length;
@@ -143,19 +163,19 @@ void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
     metadata.timestamp = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000;
 
     if (esp32c3_wifi_match_mac(frame->destination_address,
-                               (uint8_t *)s->regs + 0x40)) {
+                               (uint8_t *)s->regs + (s->c2_layout ? 0x30 : 0x40))) {
         metadata.damatch0 = 1;
     }
     if (esp32c3_wifi_match_mac(frame->destination_address,
-                               (uint8_t *)s->regs + 0x48)) {
+                               (uint8_t *)s->regs + (s->c2_layout ? 0x38 : 0x48))) {
         metadata.damatch1 = 1;
     }
     if (esp32c3_wifi_match_mac(frame->bssid_address,
-                               (uint8_t *)s->regs + 0x40)) {
+                               (uint8_t *)s->regs + (s->c2_layout ? 0x00 : 0x40))) {
         metadata.bssidmatch0 = 1;
     }
     if (esp32c3_wifi_match_mac(frame->bssid_address,
-                               (uint8_t *)s->regs + 0x48)) {
+                               (uint8_t *)s->regs + (s->c2_layout ? 0x08 : 0x48))) {
         metadata.bssidmatch1 = 1;
     }
 
@@ -184,7 +204,12 @@ static uint64_t esp32c3_wifi_read(void *opaque, hwaddr addr,
 {
     Esp32C3WifiState *s = ESP32C3_WIFI(opaque);
 
+    hwaddr physical_addr = addr;
+    addr = wifi_register(s, addr);
     switch (addr) {
+    case 0xcf8:
+        if (s->c2_layout) return 1; /* MAC reset done */
+        return s->regs[addr / 4];
     case ESP32C3_WIFI_INT_STATUS:
         return s->interrupt_status;
     case ESP32C3_WIFI_TX_ERROR:
@@ -198,7 +223,7 @@ static uint64_t esp32c3_wifi_read(void *opaque, hwaddr addr,
     case ESP32C3_WIFI_RX_LAST_DESC:
         return s->rx_desc;
     default:
-        return s->regs[addr / sizeof(uint32_t)];
+        return s->regs[physical_addr / sizeof(uint32_t)];
     }
 }
 
@@ -208,6 +233,8 @@ static void esp32c3_wifi_write(void *opaque, hwaddr addr, uint64_t value,
     Esp32C3WifiState *s = ESP32C3_WIFI(opaque);
     int slot;
 
+    hwaddr physical_addr = addr;
+    addr = wifi_register(s, addr);
     switch (addr) {
     case ESP32C3_WIFI_RX_BASE_DESC:
         s->rx_desc = value;
@@ -234,7 +261,7 @@ static void esp32c3_wifi_write(void *opaque, hwaddr addr, uint64_t value,
         break;
     }
 
-    s->regs[addr / sizeof(uint32_t)] = value;
+    s->regs[physical_addr / sizeof(uint32_t)] = value;
 }
 
 static const MemoryRegionOps esp32c3_wifi_ops = {
@@ -281,6 +308,8 @@ static void esp32c3_wifi_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     static const Property properties[] = {
+        DEFINE_PROP_BOOL("clock-services", Esp32C3WifiState, clock_services, false),
+        DEFINE_PROP_BOOL("c2-layout", Esp32C3WifiState, c2_layout, false),
         DEFINE_NIC_PROPERTIES(Esp32C3WifiState, conf),
         DEFINE_PROP_UINT64("bandwidth-bps", Esp32C3WifiState,
                            bandwidth_bps, 4000000),

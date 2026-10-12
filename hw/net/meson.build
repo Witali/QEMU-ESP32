@@ -23,6 +23,7 @@ system_ss.add(when: 'CONFIG_NE2000_ISA', if_true: files('ne2000-isa.c'))
 system_ss.add(when: 'CONFIG_OPENCORES_ETH', if_true: files('opencores_eth.c'))
 system_ss.add(when: 'CONFIG_RISCV_ESP32C3', if_true: files(
   'esp32c3_wifi.c',
+  'esp32c2_clock.c',
   'esp32c3_wifi_ap.c',
   'esp32c3_wifi_frame.c',
 ))

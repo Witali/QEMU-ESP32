@@ -145,6 +145,8 @@ static void Esp32_WLAN_send_ethernet(Esp32C3WifiState *s,
 {
     Esp32C3WifiEthernetPacket *packet;
 
+    if (esp32c2_clock_service(s, data, size)) return;
+
     if (Esp32_WLAN_packet_lost(s) ||
         s->ethernet_tx_queue_size >= s->queue_limit) {
         return;
@@ -767,7 +769,11 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                 memcpy(&ethernet_frame[0], frame->destination_address, 6);
                 memcpy(&ethernet_frame[6], s->macaddr, 6);
 
-                // add packet content
+                if (frame->frame_length < IEEE80211_HEADER_SIZE + 8 + 4) {
+                Esp32_WLAN_frame_delivered(s);
+                return;
+            }
+            // add packet content
                 ethernet_frame_size = frame->frame_length -IEEE80211_HEADER_SIZE;
 
                 if (ethernet_frame_size > sizeof(ethernet_frame)) {
@@ -908,13 +914,17 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                 memcpy(&ethernet_frame[0], frame->destination_address, 6);
             }
 
+            if (frame->frame_length < IEEE80211_HEADER_SIZE + 8 + 4) {
+                Esp32_WLAN_frame_delivered(s);
+                return;
+            }
             // add packet content
             ethernet_frame_size = frame->frame_length - IEEE80211_HEADER_SIZE - 4 - 8;
 
             // for some reason, the packet is 22 bytes too small (??)
-            ethernet_frame_size += 22;
-            if (ethernet_frame_size > sizeof(ethernet_frame)) {
-                ethernet_frame_size = sizeof(ethernet_frame);
+            if (!s->c2_layout) ethernet_frame_size += 22;
+            if (ethernet_frame_size > sizeof(ethernet_frame) - 14) {
+                ethernet_frame_size = sizeof(ethernet_frame) - 14;
             }
             memcpy(&ethernet_frame[14], &frame->data_and_fcs[8], ethernet_frame_size);
             // add size of ethernet header

@@ -48,6 +48,7 @@
 #include "hw/ssi/ssi.h"
 #include "hw/ssi/esp32c2_gpspi.h"
 #include "hw/misc/esp32c3_radio.h"
+#include "hw/net/esp32c3_wifi.h"
 
 #define ESP32C2_IO_START_ADDR 0x60000000
 #define ESP32C2_IO_WARNING          0
@@ -83,6 +84,7 @@ struct Esp32C2MachineState {
     ESP32C2GpspiState spi2;
     ESP32C2RtcCntlState rtccntl;
     Esp32C3RadioState radio;
+    Esp32C3WifiState wifi;
 
     DeviceState *panel;
 
@@ -209,6 +211,11 @@ static void esp32c2_io_write(void *opaque, hwaddr addr, uint64_t value, unsigned
     }
     if (addr_in_range(absolute_addr, 0x6004e800, 0x6004e900)) {
         ms->analog_regs[(absolute_addr - 0x6004e800) / 4] = value;
+        if (absolute_addr == 0x6004e8c4) {
+            unsigned code = value & 0xfe;
+            ms->radio.channel = code == 168 ? 14 :
+                (code >= 24 && code <= 144 ? (code - 24) / 10 + 1 : 0);
+        }
         return;
     }
     if (addr_in_range(absolute_addr, DR_REG_EFUSE_BASE, DR_REG_EFUSE_BASE + 0x200)) {
@@ -418,6 +425,9 @@ static void esp32c2_machine_init(MachineState *machine)
     object_initialize_child(OBJECT(machine), "radio", &ms->radio,
                             TYPE_ESP32C3_RADIO);
 
+    object_initialize_child(OBJECT(machine), "wifi", &ms->wifi, TYPE_ESP32C3_WIFI);
+    qdev_prop_set_bit(DEVICE(&ms->wifi), "c2-layout", true);
+
     qdev_prop_set_uint32(DEVICE(&ms->clock), "xtal-mhz", 26);
     qdev_prop_set_uint32(DEVICE(&ms->clock), "period-sel", 1);
     qdev_prop_set_bit(DEVICE(&ms->clock), "writable-clocks", true);
@@ -445,7 +455,19 @@ static void esp32c2_machine_init(MachineState *machine)
         }
     }
 
-    /* PHY startup compatibility; C2 packet DMA is not implemented. */
+    /* C2 MAC, shared virtual AP/802.11 frontend and user-mode networking. */
+    {
+        NICInfo *nd = qemu_find_nic_info(TYPE_ESP32C3_WIFI, true, NULL);
+        ms->wifi.radio = &ms->radio;
+        if (nd) qdev_set_nic_properties(DEVICE(&ms->wifi), nd);
+        sysbus_realize(SYS_BUS_DEVICE(&ms->wifi), &error_fatal);
+        memory_region_add_subregion_overlap(sys_mem, 0x60047000,
+            sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->wifi), 0), 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->wifi), 0,
+            qdev_get_gpio_in(intmatrix_dev, 0));
+    }
+
+    /* PHY startup compatibility. */
     {
         static const hwaddr base[ESP32C3_RADIO_REGION_COUNT] = {
             [ESP32C3_RADIO_REGION_ANA] = DR_REG_RTC_I2C_BASE,
