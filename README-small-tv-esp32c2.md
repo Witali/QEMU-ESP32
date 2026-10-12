@@ -2,8 +2,8 @@
 
 The experimental `esp32c2` machine runs the unchanged factory Small TV dump and
 our reconstructed ESP32-C2 application with a 240×240 ST7789 display. This is an
-offline display and application-startup simulator. The factory firmware stops
-at its normal **Connecting to WiFi / Ver:0.0.2** screen; our firmware starts its
+offline display and application-startup simulator. The factory firmware first draws **Connecting to WiFi / Ver:0.0.2**, then
+shows the **Small_TV / 192.168.43.1** setup instructions; our firmware starts its
 clock UI and animation, with **Waiting for time sync**.
 
 C2 Wi-Fi packet transport is not implemented. Its guest Wi-Fi driver and AP
@@ -108,8 +108,8 @@ are reused while C2 memory, PMP, interrupts, MMU, RTC and GDMA are separate.
 ## Verification
 
 Both unchanged C2 images passed 30-second offline runs and reset/reboot checks on
-2026-10-12. The reconstructed UI rendered and animated; the factory image rendered
-its Wi-Fi connection screen. A separate C3 production-image regression run
+2026-10-12. The reconstructed UI rendered and animated; the factory image progressed from its connection screen to Wi-Fi setup
+instructions. A separate C3 production-image regression run
 rendered its existing OLED radio UI. The C3 production build disables UART
 application logging, so its OLED frame is the startup evidence.
 

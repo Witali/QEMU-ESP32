@@ -15,4 +15,8 @@ $machines = & $qemu -machine help
 if ($LASTEXITCODE -ne 0 -or !($machines -match '^esp32c2\s')) {
     throw 'The installed QEMU binary does not contain the esp32c2 machine.'
 }
-Write-Host "ESP32-C2 Small TV machine ready: $qemu"
+$displayBackends = & $qemu -display help
+if ($LASTEXITCODE -ne 0 -or !($displayBackends -match '^sdl$')) {
+    throw 'This binary has no SDL backend. Configure its build with -Dsdl=enabled, or use a fresh default build-esp32c2 directory.'
+}
+Write-Host "ESP32-C2 Small TV machine with SDL ready: $qemu"

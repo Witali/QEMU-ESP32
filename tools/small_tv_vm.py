@@ -277,7 +277,7 @@ def test_vm(args, state):
         checks['source_artifacts_unchanged'] = all(digest((folder / e['file']).read_bytes()) == e['sha256'] for e in prepared['sources']['images'])
     report = {'firmware': args.firmware, 'passed': all(checks.values()), 'checks': checks,
               'duration_seconds': args.seconds, 'network': 'offline; C2 Wi-Fi packet transport is not implemented',
-              'original_expected_screen': 'Connecting to WiFi; no simulated AP is available',
+              'original_expected_screen': 'Connecting to WiFi / Ver:0.0.2, then Small_TV / 192.168.43.1 setup instructions',
               'prepared': prepared, 'error': error, 'qemu_sha256': digest(Path(args.qemu).read_bytes()),
               'tested_at_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
     save_json(state / 'test-report.json', report)
