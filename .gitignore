@@ -24,3 +24,5 @@ GTAGS
 *.gcov
 /bin/
 /share/
+
+/build-esp32c2/

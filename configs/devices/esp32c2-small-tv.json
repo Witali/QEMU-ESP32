@@ -1,0 +1,24 @@
+{
+  "name": "Small TV ESP8684H v2.0",
+  "machine": "esp32c2",
+  "status": "experimental; offline display simulation",
+  "cpu": {"architecture": "RV32IMC", "cores": 1, "frequency_hz": 120000000},
+  "memory": {"rom_bytes": 589824, "sram_bytes": 278528, "cache_bytes": 16384, "flash_bytes": 4194304},
+  "clocks": {"xtal_hz": 26000000, "systimer_hz": 10400000, "apb_hz": 40000000},
+  "display": {
+    "controller": "ST7789", "width": 240, "height": 240, "pixel_format": "RGB565",
+    "bus": "hardware SPI2", "spi_mode": 3,
+    "gpio": {"sck": 4, "mosi": 6, "dc": 5, "reset": 1, "backlight": 18},
+    "chip_select": "always selected; firmware uses CS=-1",
+    "panel_inversion": true, "backlight": "average active-low LEDC channel 0 duty"
+  },
+  "uart": {"tx_gpio": 20, "rx_gpio": 19},
+  "network": {"mode": "offline", "packet_transport": false},
+  "limitations": [
+    "PHY calibration uses compatibility completion flags, not RF signal calculations",
+    "C2 Wi-Fi packet DMA, Bluetooth and external SD-card are not implemented",
+    "SPI data pins are represented by an SSI bus; GPIO matrix routing is not electrically simulated",
+    "No cycle-accurate timing, power consumption, secure boot or flash encryption validation",
+    "Snapshot isolates flash writes; live migration and CPU-state snapshots are unsupported"
+  ]
+}
