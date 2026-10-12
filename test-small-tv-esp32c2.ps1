@@ -5,6 +5,7 @@ param(
     [string]$PythonExecutable = '',
     [string]$RomElf = '',
     [string]$StateDirectory = '',
+    [ValidateSet('clock','offline')][string]$Network = 'clock',
     [ValidateRange(5,3600)][int]$TestSeconds = 30
 )
 $ErrorActionPreference = 'Stop'
@@ -16,7 +17,7 @@ New-Item -ItemType Directory -Force -Path $StateDirectory | Out-Null
 $results = @()
 foreach ($variant in @('original','reconstructed')) {
     $variantState = Join-Path $StateDirectory $variant
-    $runArguments = @{ Action='test'; Firmware=$variant; StateDirectory=$variantState; TestSeconds=$TestSeconds; Display='none' }
+    $runArguments = @{ Action='test'; Firmware=$variant; StateDirectory=$variantState; TestSeconds=$TestSeconds; Display='none'; Network=$Network }
     foreach ($name in @('YoRadioRepository','QemuExecutable','PythonExecutable','RomElf')) {
         $value = Get-Variable -Name $name -ValueOnly
         if ($value) { $runArguments[$name] = $value }
@@ -30,7 +31,7 @@ foreach ($variant in @('original','reconstructed')) {
     }
 }
 $passed = @($results | Where-Object { !$_.passed }).Count -eq 0
-$summary = @{ passed=$passed; results=$results; network='offline'; tested_at_utc=[DateTime]::UtcNow.ToString('o') }
+$summary = @{ passed=$passed; results=$results; network=$Network; tested_at_utc=[DateTime]::UtcNow.ToString('o') }
 $summaryPath = Join-Path $StateDirectory 'test-summary.json'
 $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $summaryPath -Encoding utf8
 Write-Host "Both firmware reports saved: $summaryPath"

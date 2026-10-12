@@ -10,6 +10,7 @@ param(
     [string]$RomElf = '',
     [string]$StateDirectory = '',
     [ValidateSet('sdl','none')][string]$Display = 'sdl',
+    [ValidateSet('clock','offline')][string]$Network = 'clock',
     [ValidateRange(5,3600)][int]$TestSeconds = 30,
     [ValidateRange(0,65535)][int]$GdbPort = 0,
     [string]$ScreenshotPath = '',
@@ -21,7 +22,7 @@ if (!$YoRadioRepository) {
     $YoRadioRepository = Join-Path (Split-Path -Parent $PSScriptRoot) 'yoRadio'
 }
 $YoRadioRepository = [IO.Path]::GetFullPath($YoRadioRepository)
-if (!$StateDirectory) { $StateDirectory = Join-Path $PSScriptRoot ".cache\small-tv-c2\$Firmware" }
+if (!$StateDirectory) { $StateDirectory = Join-Path $PSScriptRoot ".cache\small-tv-c2\$Network-$Firmware" }
 if (!$PythonExecutable) {
     $pythonCandidates = @(
         (Join-Path $YoRadioRepository '.idf\python-3.12.10\tools\python.exe'),
@@ -54,7 +55,7 @@ $arguments = @(
     '--qemu', ([IO.Path]::GetFullPath($QemuExecutable)),
     '--rom-elf', ([IO.Path]::GetFullPath($RomElf)),
     '--state', ([IO.Path]::GetFullPath($StateDirectory)),
-    '--display', $Display, '--seconds', "$TestSeconds", '--gdb-port', "$GdbPort"
+    '--network', $Network, '--display', $Display, '--seconds', "$TestSeconds", '--gdb-port', "$GdbPort"
 )
 if ($Persistent) { $arguments += '--persistent' }
 if ($Paused) { $arguments += '--paused' }

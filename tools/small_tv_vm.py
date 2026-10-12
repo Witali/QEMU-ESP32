@@ -5,6 +5,8 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
+from small_tv_network import seed_clock_network
 from pathlib import Path
 import shutil
 import socket
@@ -92,6 +94,8 @@ def prepare(args, state):
             data[start:end] = image
         source_info = {'images': manifest['images'], 'source_sha256': manifest['source_sha256']}
     check_flash(data)
+    if args.network == 'clock':
+        data = seed_clock_network(data, args.firmware, state, args.yoradio)
     flash_sha = digest(data)
     flash = state / 'flash.bin'
     info_path = state / 'prepared.json'
@@ -101,7 +105,7 @@ def prepare(args, state):
             raise ValueError('Persistent flash belongs to another build; choose a new StateDirectory')
     else:
         flash.write_bytes(data)
-    info = {'firmware': args.firmware, 'prepared_flash_sha256': flash_sha, 'rom': rom_info, 'sources': source_info}
+    info = {'network': args.network, 'firmware': args.firmware, 'prepared_flash_sha256': flash_sha, 'rom': rom_info, 'sources': source_info}
     save_json(info_path, info)
     return info
 
@@ -163,8 +167,13 @@ def launch(args, state):
     command = [args.qemu, '-M', 'esp32c2', '-name', name, '-L', str(state),
                '-drive', f'file={flash_path},if=mtd,format=raw',
                '-display', args.display, '-serial', f'file:{state / "uart.log"}',
-               '-monitor', 'none', '-nic', 'none', '-qmp',
+               '-monitor', 'none', '-icount', 'shift=3,align=off,sleep=on', '-qmp',
                f'tcp:127.0.0.1:{port},server=on,wait=off']
+    if args.network == 'clock':
+        command += ['-global', 'esp32c3-wifi.clock-services=on',
+                    '-nic', 'user,model=esp32c3-wifi,restrict=on']
+    else:
+        command += ['-nic', 'none']
     if not args.persistent: command.append('-snapshot')
     if args.gdb_port:
         command += ['-gdb', f'tcp:127.0.0.1:{args.gdb_port}']
@@ -173,7 +182,7 @@ def launch(args, state):
         process = subprocess.Popen(command, stdout=log, stderr=log,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     session = {'name': name, 'pid': process.pid, 'qmp_port': port, 'firmware': args.firmware,
-               'persistent': args.persistent, 'qemu': args.qemu, 'started_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
+               'network': args.network, 'persistent': args.persistent, 'qemu': args.qemu, 'started_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
     save_json(state / 'session.json', session)
     for attempt in range(50):
         if process.poll() is not None:
@@ -218,11 +227,34 @@ def capture_png(qmp, path):
     encoded += chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
     path.write_bytes(encoded)
 
+def read_guest_boot_time(state):
+    session = get_session(state)
+    with QMP(session['qmp_port'], session['name']) as qmp:
+        output = qmp.execute('human-monitor-command', **{'command-line': 'xp /2wx 0x60008050'})
+        low, high = [int(value,16) for value in re.findall(r'0x([0-9a-fA-F]{8})\b', output)]
+    return ((high << 32) | low) / 1e6
+
+def read_guest_clock(state):
+    """Read the RTC epoch offset and elapsed virtual time; never write RAM/PC.
+
+    Both tested IDF versions store the 64-bit boot-time offset in STORE2/3.
+    The radio microsecond counter supplies elapsed QEMU virtual time.
+    """
+    session = get_session(state)
+    def words(qmp, address, count):
+        output = qmp.execute('human-monitor-command', **{'command-line': f'xp /{count}wx {address:#x}'})
+        return [int(value,16) for value in re.findall(r'0x([0-9a-fA-F]{8})\b', output)]
+    with QMP(session['qmp_port'], session['name']) as qmp:
+        low, high = words(qmp, 0x60008050, 2)
+        elapsed, = words(qmp, 0x6004d000, 1)
+    return ((high << 32) | low) / 1e6 + elapsed / 1e6
+
 def test_vm(args, state):
     args.display, args.persistent, args.paused = 'none', False, False
     session, prepared = launch(args, state)
     before = digest((state / 'flash.bin').read_bytes())
     screenshots = []
+    clock = None
     error = None
     try:
         with QMP(session['qmp_port'], session['name']) as qmp:
@@ -237,7 +269,7 @@ def test_vm(args, state):
                 qmp.execute('screendump', filename=str(ppm))
                 capture_png(qmp, png)
                 screenshots.append(ppm_pixels(ppm))
-                time.sleep(.25)
+                time.sleep(.5)
             registers = qmp.execute('human-monitor-command', **{'command-line': 'info registers'})
             (state / 'registers.txt').write_text(registers)
             status = qmp.execute('query-status')
@@ -251,15 +283,32 @@ def test_vm(args, state):
         }
         if args.firmware == 'reconstructed':
             checks['app_main_completed'] = 'Reconstructed ESP32-C2 clock started' in uart and 'Returned from app_main' in uart
-            checks['ap_started'] = 'DHCP server started' in uart
+            if args.network == 'offline': checks['ap_started'] = 'DHCP server started' in uart
             region = lambda frame: frame[143*240*3:224*240*3]
             checks['animation_updates'] = len({digest(region(f)) for f in screenshots}) > 1
+        clock = None
+        if args.network == 'clock':
+            clock = read_guest_clock(state)
+            checks['ntp_reply_sent'] = 'C2 NTP reply' in (state / 'qemu.log').read_text(errors='replace')
+            replies = re.findall(r'C2 NTP reply unix_seconds=(\d+) virtual_us=(\d+)', (state / 'qemu.log').read_text(errors='replace'))
+            if replies:
+                seconds, sent_us = map(int, replies[-1])
+                # Check the offset that SNTP actually stored against the
+                # server timestamp. Execution speed may lag real wall time.
+                expected_boot = seconds - sent_us / 1e6
+                checks['guest_clock_set_by_sntp'] = abs(read_guest_boot_time(state) - expected_boot) < 1
+            else:
+                checks['guest_clock_set_by_sntp'] = False
+            if args.firmware == 'reconstructed':
+                checks['wifi_associated'] = 'connected with yoRadio-QEMU' in uart
+                checks['station_dhcp'] = 'sta ip: 10.0.2.15' in uart
         # Reset the VM and verify the guest can boot and draw a second time.
         with QMP(session['qmp_port'], session['name']) as qmp: qmp.execute('system_reset')
-        time.sleep(3)
+        time.sleep(8)
         with QMP(session['qmp_port'], session['name']) as qmp:
             qmp.execute('screendump', filename=str(state / 'after-reset.ppm'))
         uart2 = (state / 'uart.log').read_text(errors='replace')
+        checks['no_panic_after_reset'] = 'Guru Meditation' not in uart2 and 'assert failed' not in uart2
         checks['reset_reboots'] = uart2.count('ESP-ROM:esp32c2') >= 2 and sum(p != 0 for p in ppm_pixels(state / 'after-reset.ppm')) > 1000
     except Exception as exc:
         checks = {'test_completed': False}
@@ -276,8 +325,8 @@ def test_vm(args, state):
         folder = Path(args.yoradio) / 'firmware/development/small-tv-esp32c2-reconstructed'
         checks['source_artifacts_unchanged'] = all(digest((folder / e['file']).read_bytes()) == e['sha256'] for e in prepared['sources']['images'])
     report = {'firmware': args.firmware, 'passed': all(checks.values()), 'checks': checks,
-              'duration_seconds': args.seconds, 'network': 'offline; C2 Wi-Fi packet transport is not implemented',
-              'original_expected_screen': 'Connecting to WiFi / Ver:0.0.2, then Small_TV / 192.168.43.1 setup instructions',
+              'duration_seconds': args.seconds, 'network': args.network, 'guest_clock_unix': clock,
+              'original_expected_screen': ('Clock with synchronized date/time' if args.network == 'clock' else 'Connecting to WiFi / Ver:0.0.2, then Small_TV / 192.168.43.1 setup instructions'),
               'prepared': prepared, 'error': error, 'qemu_sha256': digest(Path(args.qemu).read_bytes()),
               'tested_at_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
     save_json(state / 'test-report.json', report)
@@ -292,6 +341,7 @@ def main():
     parser.add_argument('--qemu', default='')
     parser.add_argument('--state', required=True)
     parser.add_argument('--display', choices=['none', 'sdl'], default='sdl')
+    parser.add_argument('--network', choices=['clock','offline'], default='clock')
     parser.add_argument('--persistent', action='store_true')
     parser.add_argument('--paused', action='store_true')
     parser.add_argument('--gdb-port', type=int, default=0)

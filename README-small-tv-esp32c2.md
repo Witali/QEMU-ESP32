@@ -1,15 +1,18 @@
 # Small TV ESP32-C2 QEMU machine
 
-The experimental `esp32c2` machine runs the unchanged factory Small TV dump and
-our reconstructed ESP32-C2 application with a 240×240 ST7789 display. This is an
-offline display and application-startup simulator. The factory firmware first draws **Connecting to WiFi / Ver:0.0.2**, then
-shows the **Small_TV / 192.168.43.1** setup instructions; our firmware starts its
-clock UI and animation, with **Waiting for time sync**.
+The experimental `esp32c2` machine runs the factory Small TV application and
+our reconstructed application with a 240�240 ST7789 display. The default `clock`
+network profile emulates an open **yoRadio-QEMU** access point, Wi-Fi packet DMA,
+association, DHCP, ARP, DNS and UDP NTP. Both applications receive time from a
+virtual server using the computer's UTC clock. Guest instructions are unchanged;
+only settings in a disposable flash copy are replaced for the virtual network.
 
-C2 Wi-Fi packet transport is not implemented. Its guest Wi-Fi driver and AP
-startup execute, but the host cannot open `192.168.43.1` through this machine.
-SNTP, live weather and HTTP traffic have not been tested here. The C3 virtual AP
-and NAT backend cannot be reused unchanged: C2 uses different MAC/DMA registers.
+The profile is isolated with SLIRP `restrict=on`. DNS maps the three firmware
+time-server names to `10.0.2.2`; other names receive NXDOMAIN. It provides no
+Internet weather data. The original firmware may display weather lookup errors;
+the reconstruction uses an empty weather key. `-Network offline` retains the
+earlier boot/display-only mode, with the factory setup screen and unsynchronized
+reconstructed clock. This is a packet-level Wi-Fi model, not RF simulation.
 
 ## Build and run on Windows
 
@@ -28,21 +31,25 @@ The executable is installed under `bin/`. C3 remains available in that binary.
 The launcher defaults to the sibling `yoRadio` repository. It locates the genuine
 `esp32c2_rev200_rom.elf` in that repository's ESP-IDF `esp-rom-elfs` package.
 For another layout, pass `-YoRadioRepository`, `-RomElf`, `-PythonExecutable`
-and/or `-QemuExecutable`. The Python helper needs only Python's standard library.
+and/or `-QemuExecutable`. The VM controller uses Python's standard library; the `clock` profile also uses
+the pinned ESP-IDF Python environment's NVS generator for reconstructed settings.
 Obtain the ROM ELF through ESP-IDF; this repository does not redistribute it.
 
-Each variant has its own state directory under `.cache/small-tv-c2/`. Preparation
+Each network profile and variant has its own state directory under `.cache/small-tv-c2/`. Preparation
 validates source hashes and C2 image headers, converts the real ROM ELF's physical
 load segments into a ROM binary, and creates a 4 MiB working flash image.
-Factory flash is copied byte for byte; reconstructed bootloader, partition table,
-app and assets are placed at their archived offsets. NVS starts erased for the
-reconstructed image. Neither application's instructions are patched, and there
-are no PC-specific function replacements or synthetic network replies.
+The `offline` profile copies factory flash byte for byte. The `clock` profile
+erases the working NVS region `0x9000..0xefff`, removing hardware calibration and
+stored owner credentials. It seeds the original raw settings sector at
+`0x3e7000`, or the reconstruction's `small_tv/configuration` NVS blob, with an
+open synthetic SSID and no owner weather key. Application/bootloader instructions
+and display assets remain unchanged. There are no guest PC/function patches or
+direct time writes: SNTP receives regular UDP packets and sets the RTC offset.
 
 Default `-snapshot` execution discards guest flash writes when QEMU exits.
 `-Persistent` instead retains writes in the working copy, including NVS settings.
 It never writes the source dump or firmware archive. A persistent copy from
-another firmware build requires a new `-StateDirectory`.
+another firmware build or network profile requires a new `-StateDirectory`.
 
 ## Control and diagnostics
 
@@ -54,7 +61,8 @@ another firmware build requires a new `-StateDirectory`.
 ```
 
 Repeat these commands with `-Firmware original` for the factory VM. SDL shows the
-LCD; `-Display none` runs headless. Screenshots are PNG files encoded from QEMU's
+LCD; `-Display none` runs headless. Add `-Network offline` to both launch and
+control commands when addressing an offline VM. Screenshots are PNG files encoded from QEMU's
 PPM framebuffer, so they also work in builds without libpng. `uart.log`,
 `qemu.log`, `prepared.json` and `session.json` stay in the selected state directory.
 QMP binds to a dynamically selected localhost port and checks the VM's unique
@@ -71,7 +79,10 @@ the simulated UART; no serial device or physical board is accessed.
 
 This runs both firmware images for 30 seconds each, captures the LCD, checks for
 panics/watchdogs, resets each VM and verifies a second boot. The reconstruction
-also must complete `app_main`, start its AP DHCP server and update its animation.
+also must complete `app_main` and update its animation. In `clock` mode it must
+associate and obtain `10.0.2.15`; both images must receive an NTP reply and store
+its timestamp in the RTC boot-time offset. `-Network offline` checks the earlier
+AP startup path instead.
 Hashes verify that the working base flash and source artifacts were unchanged.
 The test stops its own VMs and saves separate JSON reports and screenshots in a
 timestamped directory. To shorten a smoke run, use `-TestSeconds 10`.
@@ -94,6 +105,7 @@ the compiled machine.
 | LCD | ST7789, RGB565, 240×240; D/C GPIO5, Reset GPIO1; SCK4/MOSI6 described by the direct SSI bus |
 | Backlight | GPIO18's active-low LEDC channel 0 duty represented by average screen brightness |
 | eFuse | Synthetic C2 v2.0 identity and local MAC `02:00:00:00:00:02`; no owner's device identity copied |
+| Wi-Fi | C2 MAC/DMA at `0x60047000`; shared 802.11 AP frontend, isolated DHCP/ARP/DNS/NTP |
 | PHY startup | Register readback and synchronous completion flags for analog calibration and MAC reset |
 
 The LCD is always selected because this firmware uses `CS=-1`; its physical CS
@@ -105,16 +117,29 @@ Flash snapshots are supported; full CPU/device checkpoints and live migration
 are not supported. Compatible C3 UART/GPIO/SPI-flash/SHA/timer building blocks
 are reused while C2 memory, PMP, interrupts, MMU, RTC and GDMA are separate.
 
-## Verification
+## Virtual time and verification
 
-Both unchanged C2 images passed 30-second offline runs and reset/reboot checks on
-2026-10-12. The reconstructed UI rendered and animated; the factory image progressed from its connection screen to Wi-Fi setup
-instructions. A separate C3 production-image regression run
-rendered its existing OLED radio UI. The C3 production build disables UART
-application logging, so its OLED frame is the startup evidence.
+The launcher uses `-icount shift=3,align=off,sleep=on`: eight virtual nanoseconds
+per instruction, approximately one instruction per 125 MHz cycle. This is not
+cycle-accurate. The CPU cycle-counter property still reports 120 MHz. Virtual
+seconds may run slower than wall seconds during heavy display work. NTP sets the
+clock to host UTC at synchronization; a long run may subsequently drift relative
+to the host. The automatic `icount` setting and the former host-clock mode caused
+interrupt watchdog panics in these images, so neither is the default. Watchdogs
+remain enabled in the guest. Only the fixed instruction-count mode is validated.
 
-The firmware repository contains screenshots, UART logs and machine-readable
-reports under `yoRadio/Small_TV/qemu/`. These are emulator results, not a physical
-board test or confirmation of networking. Hardware specifications are cross-
-checked against Espressif's [ESP8684 datasheet](https://documentation.espressif.com/esp8684_datasheet_en.html)
-and the target-specific headers in the pinned ESP-IDF source archive.
+Both C2 applications passed Wi-Fi/NTP, LCD, panic and reset/reboot checks in
+headless 45-second runs. The test compares the **RTC offset actually stored by
+SNTP** with the server timestamp in the same virtual time scale; a populated LCD
+alone is not proof of synchronization. The existing C3 production firmware also
+passed its separate boot/OLED regression with the final QEMU binary. The earlier
+30-second offline evidence remains in the firmware repository for comparison.
+
+Screenshots, sanitized UART logs and JSON reports are in `yoRadio/Small_TV/qemu/`.
+These are emulator results. No serial device or physical board was accessed.
+The user authorized SDL testing; the visible windows were subsequently closed,
+and the final network validation uses `-Display none`.
+
+Hardware specifications can be checked against Espressif's
+[ESP8684 datasheet](https://documentation.espressif.com/esp8684_datasheet_en.html)
+and the target headers/ROM ELF in the pinned ESP-IDF source archive.
