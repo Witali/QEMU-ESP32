@@ -4,6 +4,7 @@ param(
     [string]$QemuExecutable = '',
     [string]$PythonExecutable = '',
     [string]$RomElf = '',
+    [string]$HardwareProfile = '',
     [string]$StateDirectory = '',
     [ValidateSet('clock','offline')][string]$Network = 'clock',
     [ValidateRange(5,3600)][int]$TestSeconds = 30
@@ -18,7 +19,7 @@ $results = @()
 foreach ($variant in @('original','reconstructed')) {
     $variantState = Join-Path $StateDirectory $variant
     $runArguments = @{ Action='test'; Firmware=$variant; StateDirectory=$variantState; TestSeconds=$TestSeconds; Display='none'; Network=$Network }
-    foreach ($name in @('YoRadioRepository','QemuExecutable','PythonExecutable','RomElf')) {
+    foreach ($name in @('YoRadioRepository','QemuExecutable','PythonExecutable','RomElf','HardwareProfile')) {
         $value = Get-Variable -Name $name -ValueOnly
         if ($value) { $runArguments[$name] = $value }
     }

@@ -90,9 +90,12 @@ Stop any VM that uses an explicitly supplied test state directory first.
 
 ## Modeled hardware
 
-`configs/devices/esp32c2-small-tv.json` describes the profile. Its fixed wiring is
-implemented by `hw/riscv/esp32c2.c`; changing the JSON GPIO labels does not rewire
-the compiled machine.
+`configs/devices/esp32c2-small-tv.json` describes the SoC and stock board.
+`configs/boards/small-tv-c2.json` is an executable wiring profile; pass it as
+`-HardwareProfile` to either launcher/test script. See
+[composable peripherals](README-modular-esp.md) for GPIO routing, shared SPI/SD,
+other displays, and legacy CYD/C3 compatibility. Changing wiring also requires
+matching firmware GPIO assignments.
 
 | Component | Model |
 |---|---|
@@ -110,8 +113,10 @@ the compiled machine.
 
 The LCD is always selected because this firmware uses `CS=-1`; its physical CS
 wiring has not been established. SPI GPIO routing and waveforms, panel scanout,
-RF measurements, Bluetooth, SD cards, ADC, low-power modes, power consumption,
-secure boot and encrypted flash are not validated by this model. The average
+RF measurements, Bluetooth, ADC, low-power modes, power consumption,
+secure boot and encrypted flash are not validated by this model. SD sector
+exchange is covered by the modular MMIO tests; neither stock Small TV guest
+uses an SD driver. The average
 backlight mapping is based on the firmware, not a new physical polarity test.
 Flash snapshots are supported; full CPU/device checkpoints and live migration
 are not supported. Compatible C3 UART/GPIO/SPI-flash/SHA/timer building blocks

@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "soc": "esp32c2",
+  "devices": [
+    {
+      "id": "lcd",
+      "bus": "spi2",
+      "model": "st7789",
+      "pins": {
+        "sck": 4,
+        "mosi": 6,
+        "dc": 5,
+        "reset": 1,
+        "backlight": 18,
+        "cs": 3
+      },
+      "backlight_active_low": true,
+      "properties": {
+        "visible-width": 240,
+        "controls": false,
+        "panel-inverted": true
+      }
+    },
+    {
+      "id": "sd",
+      "bus": "spi2",
+      "model": "sd",
+      "pins": {
+        "sck": 4,
+        "mosi": 6,
+        "miso": 2,
+        "cs": 10
+      },
+      "image": "../../.cache/esp-boards/sd.img"
+    }
+  ]
+}

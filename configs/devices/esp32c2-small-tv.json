@@ -53,10 +53,11 @@
   },
   "limitations": [
     "PHY calibration uses compatibility completion flags, not RF signal calculations",
-    "Bluetooth, external SD-card and WPA encryption are not implemented",
-    "SPI data pins are represented by an SSI bus; GPIO matrix routing is not electrically simulated",
+    "Bluetooth and WPA encryption are not implemented",
+    "GPIO matrix and IO_MUX route transaction-level SPI/I2C; electrical timing and bit banging are not simulated",
     "No cycle-accurate timing, power consumption, secure boot or flash encryption validation",
     "Snapshot isolates flash writes; live migration and CPU-state snapshots are unsupported",
     "Fixed instruction-count virtual time may lag wall time under CPU load"
-  ]
+  ],
+  "hardware_profile": "configs/boards/small-tv-c2.json"
 }

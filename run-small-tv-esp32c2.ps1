@@ -8,6 +8,7 @@ param(
     [string]$QemuExecutable = '',
     [string]$PythonExecutable = '',
     [string]$RomElf = '',
+    [string]$HardwareProfile = '',
     [string]$StateDirectory = '',
     [ValidateSet('sdl','none')][string]$Display = 'sdl',
     [ValidateSet('clock','offline')][string]$Network = 'clock',
@@ -57,6 +58,7 @@ $arguments = @(
     '--state', ([IO.Path]::GetFullPath($StateDirectory)),
     '--network', $Network, '--display', $Display, '--seconds', "$TestSeconds", '--gdb-port', "$GdbPort"
 )
+if ($HardwareProfile) { $arguments += @('--hardware-profile', ([IO.Path]::GetFullPath($HardwareProfile))) }
 if ($Persistent) { $arguments += '--persistent' }
 if ($Paused) { $arguments += '--paused' }
 if ($ScreenshotPath) { $arguments += @('--screenshot', ([IO.Path]::GetFullPath($ScreenshotPath))) }

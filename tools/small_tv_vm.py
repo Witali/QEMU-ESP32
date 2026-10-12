@@ -7,6 +7,7 @@ import json
 import os
 import re
 from small_tv_network import seed_clock_network
+from esp_board import compile_profile
 from pathlib import Path
 import shutil
 import socket
@@ -162,13 +163,18 @@ def launch(args, state):
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
+    hardware = compile_profile(args.hardware_profile, 'esp32c2') if args.hardware_profile else None
+    if hardware:
+        hardware = dict(hardware, sha256=digest(Path(hardware['profile']).read_bytes()))
     name = 'SmallTV-' + uuid.uuid4().hex[:12]
     flash_path = str(state / 'flash.bin').replace(',', ',,')
-    command = [args.qemu, '-M', 'esp32c2', '-name', name, '-L', str(state),
+    command = [args.qemu, '-M', hardware['machine'] if hardware else 'esp32c2', '-name', name, '-L', str(state),
                '-drive', f'file={flash_path},if=mtd,format=raw',
                '-display', args.display, '-serial', f'file:{state / "uart.log"}',
                '-monitor', 'none', '-icount', 'shift=3,align=off,sleep=on', '-qmp',
                f'tcp:127.0.0.1:{port},server=on,wait=off']
+    if hardware:
+        command += hardware['arguments']
     if args.network == 'clock':
         command += ['-global', 'esp32c3-wifi.clock-services=on',
                     '-nic', 'user,model=esp32c3-wifi,restrict=on']
@@ -182,7 +188,7 @@ def launch(args, state):
         process = subprocess.Popen(command, stdout=log, stderr=log,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     session = {'name': name, 'pid': process.pid, 'qmp_port': port, 'firmware': args.firmware,
-               'network': args.network, 'persistent': args.persistent, 'qemu': args.qemu, 'started_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
+               'hardware_profile': hardware, 'network': args.network, 'persistent': args.persistent, 'qemu': args.qemu, 'started_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
     save_json(state / 'session.json', session)
     for attempt in range(50):
         if process.poll() is not None:
@@ -324,7 +330,8 @@ def test_vm(args, state):
     else:
         folder = Path(args.yoradio) / 'firmware/development/small-tv-esp32c2-reconstructed'
         checks['source_artifacts_unchanged'] = all(digest((folder / e['file']).read_bytes()) == e['sha256'] for e in prepared['sources']['images'])
-    report = {'firmware': args.firmware, 'passed': all(checks.values()), 'checks': checks,
+    hardware = json.loads((state / 'session.json').read_text()).get('hardware_profile') if (state / 'session.json').exists() else None
+    report = {'hardware_profile': hardware, 'firmware': args.firmware, 'passed': all(checks.values()), 'checks': checks,
               'duration_seconds': args.seconds, 'network': args.network, 'guest_clock_unix': clock,
               'original_expected_screen': ('Clock with synchronized date/time' if args.network == 'clock' else 'Connecting to WiFi / Ver:0.0.2, then Small_TV / 192.168.43.1 setup instructions'),
               'prepared': prepared, 'error': error, 'qemu_sha256': digest(Path(args.qemu).read_bytes()),
@@ -341,6 +348,7 @@ def main():
     parser.add_argument('--qemu', default='')
     parser.add_argument('--state', required=True)
     parser.add_argument('--display', choices=['none', 'sdl'], default='sdl')
+    parser.add_argument('--hardware-profile', default='')
     parser.add_argument('--network', choices=['clock','offline'], default='clock')
     parser.add_argument('--persistent', action='store_true')
     parser.add_argument('--paused', action='store_true')

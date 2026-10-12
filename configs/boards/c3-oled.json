@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "soc": "esp32c3",
+  "devices": [
+    {
+      "id": "oled",
+      "bus": "i2c0",
+      "model": "ssd1306",
+      "address": "0x3c",
+      "pins": {
+        "scl": 6,
+        "sda": 5
+      },
+      "properties": {
+        "visible-width": 72,
+        "visible-height": 40,
+        "column-offset": 28,
+        "magnify": 4
+      }
+    }
+  ]
+}
