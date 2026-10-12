@@ -70,6 +70,10 @@ struct ST7789State {
     uint8_t madctl;
     uint8_t colmod;
     uint8_t ramctrl;
+    uint32_t visible_width;
+    bool controls;
+    bool panel_inverted;
+    uint32_t brightness;
     bool dc;
     bool backlight;
     bool display_on;
@@ -113,7 +117,7 @@ static void st7789_reset_state(ST7789State *s, bool clear_framebuffer)
     s->column = 0;
     s->row = 0;
     s->column_start = 0;
-    s->column_end = ST7789_WIDTH - 1;
+    s->column_end = s->visible_width - 1;
     s->row_start = 0;
     s->row_end = ST7789_HEIGHT - 1;
     s->shift_left = s->shift_right = false;
@@ -576,7 +580,7 @@ static void st7789_update_display(void *opaque)
         uint8_t *dest =
             surface_data(surface) + y * surface_stride(surface);
 
-        for (x = 0; x < ST7789_WIDTH; x++) {
+        for (x = 0; x < s->visible_width; x++) {
             uint16_t color =
                 blanked ? 0 : s->framebuffer[y * ST7789_WIDTH + x];
             uint8_t red;
@@ -584,7 +588,7 @@ static void st7789_update_display(void *opaque)
             uint8_t blue;
             uint32_t pixel;
 
-            if (s->inverted && !blanked) {
+            if ((s->inverted != s->panel_inverted) && !blanked) {
                 color ^= 0xffff;
             }
             red = ((color >> 11) & 0x1f) * 255 / 31;
@@ -595,13 +599,16 @@ static void st7789_update_display(void *opaque)
                 red = blue;
                 blue = swap;
             }
+            red = red * s->brightness / 1000;
+            green = green * s->brightness / 1000;
+            blue = blue * s->brightness / 1000;
             pixel = st7789_rgb_to_surface(surface, red, green, blue);
             st7789_store_surface_pixel(dest, bytes_per_pixel, pixel);
             dest += bytes_per_pixel;
         }
     }
 
-    st7789_draw_controls(s, surface);
+    if (s->controls) st7789_draw_controls(s, surface);
     s->redraw = false;
     dpy_gfx_update_full(s->con);
 }
@@ -883,7 +890,7 @@ static int st7789_post_load(void *opaque, int version_id)
 
 static const VMStateDescription vmstate_st7789 = {
     .name = "st7789",
-    .version_id = 1,
+    .version_id = 2,
     .minimum_version_id = 1,
     .post_load = st7789_post_load,
     .fields = (const VMStateField[]) {
@@ -899,6 +906,7 @@ static const VMStateDescription vmstate_st7789 = {
         VMSTATE_BOOL(display_on, ST7789State),
         VMSTATE_BOOL(sleeping, ST7789State),
         VMSTATE_BOOL(inverted, ST7789State),
+        VMSTATE_UINT32_V(brightness, ST7789State, 2),
         VMSTATE_BOOL(little_endian, ST7789State),
         VMSTATE_UINT16(column, ST7789State),
         VMSTATE_UINT16(row, ST7789State),
@@ -918,7 +926,26 @@ static const GraphicHwOps st7789_ops = {
     .gfx_update = st7789_update_display,
 };
 
+static void st7789_brightness(void *opaque, int line, int level)
+{
+    ST7789State *s = opaque;
+    unsigned brightness = CLAMP(level, 0, 1000);
+    if (brightness != s->brightness) {
+        s->brightness = brightness;
+        s->redraw = true;
+    }
+}
+
+static void st7789_reset_pin(void *opaque, int n, int level)
+{
+    ST7789State *s=opaque;
+    if (!level) st7789_reset_state(s,true);
+}
+
 static Property st7789_properties[] = {
+    DEFINE_PROP_UINT32("visible-width", ST7789State, visible_width, ST7789_WIDTH),
+    DEFINE_PROP_BOOL("controls", ST7789State, controls, true),
+    DEFINE_PROP_BOOL("panel-inverted", ST7789State, panel_inverted, false),
     DEFINE_PROP_LINK("keyboard-uart", ST7789State, keyboard_uart,
                      TYPE_ESP32_UART, ESP32UARTState *),
     DEFINE_PROP_END_OF_LIST(),
@@ -929,9 +956,16 @@ static void st7789_realize(SSIPeripheral *dev, Error **errp)
     DeviceState *device = DEVICE(dev);
     ST7789State *s = ST7789(dev);
 
+    if (!s->visible_width || s->visible_width > ST7789_WIDTH) {
+        error_setg(errp,"ST7789 width must be 1..320"); return;
+    }
     s->con = graphic_console_init(device, 0, &st7789_ops, s);
-    qemu_console_resize(s->con, ST7789_WIDTH, ST7789_SURFACE_HEIGHT);
+    s->brightness = 1000;
+    qdev_init_gpio_in_named(device, st7789_brightness, "brightness", 1);
+    qemu_console_resize(s->con, s->visible_width,
+                        ST7789_HEIGHT + (s->controls ? ST7789_CONTROL_HEIGHT : 0));
     qdev_init_gpio_in_named(device, st7789_dc, "dc", 1);
+    qdev_init_gpio_in_named(device, st7789_reset_pin, "reset-pin", 1);
     qdev_init_gpio_in_named(device, st7789_backlight, "backlight", 1);
     qdev_init_gpio_out_named(device, &s->reset_button, "reset-button", 1);
     qdev_init_gpio_out_named(device, &s->boot_button, "boot-button", 1);

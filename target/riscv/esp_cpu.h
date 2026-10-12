@@ -56,6 +56,8 @@ typedef struct EspRISCVCPU {
     /*< public >*/
     /* The parent object already has a reset vector property */
     uint32_t hartid_base;
+    uint32_t frequency_hz;
+    bool c2_fixed_pmp;
     /* Parent IRQ_M line */
     qemu_irq parent_irq;
     /* Bitmap of interrupt matrix output lines currently asserted on CPU inputs. */

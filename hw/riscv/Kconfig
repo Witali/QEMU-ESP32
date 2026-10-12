@@ -121,3 +121,10 @@ config RISCV_ESP32C3
     select I2C
     select SSD1306
 
+
+config RISCV_ESP32C2
+    bool
+    default y
+    depends on RISCV32
+    select RISCV_ESP32C3
+    select ST7789

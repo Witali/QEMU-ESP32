@@ -22,7 +22,7 @@
 #include "hw/timer/esp_systimer.h"
 
 
-#define TICKS_TO_NS(ticks) (((ticks) / ESP_SYSTIMER_CNT_PER_US) * 1000)
+#define TICKS_TO_NS(ticks) muldiv64((ticks), 1000000000, s->frequency_hz)
 
 #define SYSTIMER_DEBUG      0
 #define SYSTIMER_WARNING    0
@@ -30,10 +30,10 @@
 /**
  * @brief Update the value of a counter according the QEMU virtual timer.
  */
-static void esp_systimer_update_counter(ESPSysTimerCounter *counter) {
+static void esp_systimer_update_counter(ESPSysTimerState *s, ESPSysTimerCounter *counter) {
     const int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     const int64_t elapsed_ns = now - counter->base;
-    const int64_t ticks = (elapsed_ns * (ESP_SYSTIMER_CNT_CLK / 1000000)) / 1000;
+    const int64_t ticks = muldiv64(elapsed_ns, s->frequency_hz, 1000000000);
     counter->value = (counter->value + ticks) & ESP_SYSTIMER_52BIT_MASK;
     counter->base = now;
 }
@@ -68,7 +68,7 @@ static void esp_systimer_notify(ESPSysTimerComp* comparator)
     ESPSysTimerCounter* counter = &s->counter[counter_idx];
 
     if (counter->enabled) {
-        esp_systimer_update_counter(counter);
+        esp_systimer_update_counter(s, counter);
     }
 
     /* Set raw status to 1 to show the application that the interrupts pending.
@@ -111,7 +111,7 @@ static void esp_systimer_comparator_reprogram(ESPSysTimerComp* comparator)
     ESPSysTimerCounter* counter = &s->counter[counter_idx];
 
     /* Update the counter to get the latest value */
-    esp_systimer_update_counter(counter);
+    esp_systimer_update_counter(s, counter);
 
     /* If the counter we have to compare it to is not enabled, do not program any timer */
     if (!counter->enabled) {
@@ -311,11 +311,11 @@ static uint64_t esp_systimer_read(void *opaque, hwaddr addr, unsigned int size)
  * @brief Function called when a guest program requests a flush of the internal
  * counter inside a mirror register: `flushed`.
  */
-static void esp_systimer_flush_counter(ESPSysTimerCounter *counter)
+static void esp_systimer_flush_counter(ESPSysTimerState *s, ESPSysTimerCounter *counter)
 {
     /* If the counter is enabled, get its latest value */
     if (counter->enabled) {
-        esp_systimer_update_counter(counter);
+        esp_systimer_update_counter(s, counter);
     }
     /* In any case, flush the value to send to the guest program */
     counter->flushed = counter->value;
@@ -332,7 +332,7 @@ static void esp_systimer_load_counter(ESPSysTimerState *s, uint32_t index)
     /* If the counter is enabled, update the internal value to the latest count.
      * Even though the value will be replaced, this will also update the base time. */
     if (counter->enabled) {
-        esp_systimer_update_counter(counter);
+        esp_systimer_update_counter(s, counter);
     }
     counter->value = counter->toload;
 
@@ -442,7 +442,7 @@ static void esp_systimer_write(void *opaque, hwaddr addr,
             /* Check if an update was requested on one of the timers */
             if (value & R_SYSTIMER_UNIT0_OP_UPDATE_MASK) {
                 /* Address is either 4 (unit0) or 8 (unit 1), get index by dividing by 8 */
-                esp_systimer_flush_counter(&s->counter[addr / 8]);
+                esp_systimer_flush_counter(s, &s->counter[addr / 8]);
             }
             break;
 
@@ -599,6 +599,9 @@ static void esp_systimer_reset_hold(Object *obj, ResetType type)
 
 static void esp_systimer_realize(DeviceState *dev, Error **errp)
 {
+    if (ESP_SYSTIMER(dev)->frequency_hz == 0) {
+        error_setg(errp, "clock-frequency must be nonzero");
+    }
 }
 
 
@@ -621,6 +624,11 @@ static void esp_systimer_init(Object *obj)
 }
 
 
+static Property esp_systimer_properties[] = {
+    DEFINE_PROP_UINT32("clock-frequency", ESPSysTimerState, frequency_hz, ESP_SYSTIMER_CNT_CLK),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void esp_systimer_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -629,6 +637,7 @@ static void esp_systimer_class_init(ObjectClass *klass, void *data)
 
     rc->phases.hold = esp_systimer_reset_hold;
     dc->realize = esp_systimer_realize;
+    device_class_set_props(dc, esp_systimer_properties);
 
     class->comparators_reprogram = esp_systimer_comparator_reprogram_all;
     class->systimer_ops = (MemoryRegionOps) {

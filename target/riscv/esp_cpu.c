@@ -19,6 +19,7 @@
 #include "hw/qdev-properties.h"
 #include "sysemu/reset.h"
 #include "esp_cpu.h"
+#include "pmp.h"
 
 #define BIT_SET(reg, bit)   ((reg) & BIT(bit))
 #define CLEAR_BIT(reg, bit) do { (reg) &= ~BIT(bit); } while(0)
@@ -216,12 +217,45 @@ static void set_misa(CPURISCVState *env, RISCVMXL mxl, uint32_t ext)
     env->misa_ext_mask = env->misa_ext = ext;
 }
 
+/* ESP8684 PMPADDR3..15 are fixed in hardware; PMPADDR0..2 split SRAM. */
+static void esp_cpu_c2_pmp_reset(EspRISCVCPU *cpu)
+{
+    CPURISCVState *env = &cpu->parent_obj.env;
+    static const uint32_t address[] = {
+        0, 0, 0, 0x3fce0000u >> 2,
+        (0x20000000u >> 2) | ((0x08000000u >> 3) - 1),
+        (0x3c000000u >> 2) | ((0x00400000u >> 3) - 1),
+        0x3ff00000u >> 2, 0x3ff50000u >> 2,
+        0x40000000u >> 2, 0x40090000u >> 2,
+        (0x42000000u >> 2) | ((0x00400000u >> 3) - 1),
+        (0x60000000u >> 2) | ((0x00100000u >> 3) - 1),
+        (0x4037c000u >> 2) | ((0x00004000u >> 3) - 1),
+        0x3fffffffu, 0, 0x3fffffffu,
+    };
+    memset(&env->pmp_state, 0, sizeof(env->pmp_state));
+    for (unsigned i = 3; i < ARRAY_SIZE(address); i++) {
+        env->pmp_state.pmp[i].addr_reg = address[i];
+        pmp_update_rule_addr(env, i);
+    }
+    pmp_update_rule_nums(env);
+}
+
+static RISCVException esp_cpu_pmpaddr_write(CPURISCVState *env, int csrno,
+                                           target_ulong value)
+{
+    EspRISCVCPU *cpu = ESP_CPU(env_archcpu(env));
+    unsigned index = csrno - CSR_PMPADDR0;
+    if (!cpu->c2_fixed_pmp || index < 3) pmpaddr_csr_write(env, index, value);
+    return RISCV_EXCP_NONE;
+}
+
 static void esp_cpu_reset(void *opaque)
 {
     EspRISCVCPU *cpu = opaque;
     cpu->irq_lines = 0;
     qemu_irq_lower(cpu->parent_irq);
     cpu_reset(CPU(cpu));
+    if (cpu->c2_fixed_pmp) esp_cpu_c2_pmp_reset(cpu);
 }
 
 static void esp_cpu_realize(DeviceState *dev, Error **errp)
@@ -229,6 +263,12 @@ static void esp_cpu_realize(DeviceState *dev, Error **errp)
     EspRISCVCPU *espcpu = ESP_CPU(dev);
     EspRISCVCPUClass *klass = ESP_CPU_GET_CLASS(dev);
 
+    if (espcpu->frequency_hz == 0) {
+        error_setg(errp, "clock-frequency must be nonzero");
+        return;
+    }
+    espcpu->cc_machine.divider = UINT64_C(1000000000000) / espcpu->frequency_hz;
+    espcpu->cc_user.divider = espcpu->cc_machine.divider;
     espcpu->parent_obj.env.mhartid = espcpu->hartid_base;
     qemu_register_reset(esp_cpu_reset, espcpu);
 
@@ -288,6 +328,13 @@ static void esp_cpu_init(Object *obj)
      * request is incoming. */
     s->parent_irq = qdev_get_gpio_in(DEVICE(s), IRQ_M_EXT);
 
+    for (int i = CSR_PMPADDR0; i < CSR_PMPADDR0 + 16; i++) {
+        riscv_csr_operations ops;
+        riscv_get_csr_ops(i, &ops);
+        ops.write = esp_cpu_pmpaddr_write;
+        riscv_set_csr_ops(i, &ops);
+    }
+
     /* Set the user operations */
     riscv_set_csr_ops(CSR_USTATUS, &esp_cpu_csr_ops);
 
@@ -305,15 +352,12 @@ static void esp_cpu_init(Object *obj)
     riscv_set_csr_ops(ESP_CPU_CSR_PCMR_U, &esp_cpu_csr_ops);
     riscv_set_csr_ops(ESP_CPU_CSR_MCYCLE_U, &esp_cpu_csr_ops);
 
-    s->cc_machine = (ESPCPUCycleCounter) {
-        .divider = 6250,   /* 6.25ns per instruction at 160MHz. */
-    };
-    s->cc_user = (ESPCPUCycleCounter) {
-        .divider = 6250,   /* Should be using the target configured CPU clock frequency instead. */
-    };
+
 }
 
 static Property riscv_harts_props[] = {
+    DEFINE_PROP_BOOL("c2-fixed-pmp", EspRISCVCPU, c2_fixed_pmp, false),
+    DEFINE_PROP_UINT32("clock-frequency", EspRISCVCPU, frequency_hz, 160000000),
     DEFINE_PROP_UINT32("hartid-base", EspRISCVCPU, hartid_base, 0),
     DEFINE_PROP_END_OF_LIST(),
 };

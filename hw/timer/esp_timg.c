@@ -112,7 +112,7 @@ static void esp_timg_rtc_cali_update(ESPTimgState *s, uint32_t value)
         const uint32_t max_count = FIELD_EX32(value, TIMG_RTCCALICFG, MAX);
 
         /* Calculate how many clock cycle it would require to the XTAL_CLK to reach this count */
-        const uint32_t xtal_count = (ESP_XTAL_CLK * max_count) / freq;
+        const uint32_t xtal_count = ((uint64_t)s->xtal_frequency * max_count) / freq;
 
         /* Save this count in the RTC Calibration register 1 */
         s->rtc.rtc_cali_cfg_result = xtal_count << R_TIMG_RTCCALICFG1_VALUE_SHIFT;
@@ -150,7 +150,7 @@ static void esp_timg_rtc_cali_check_timeout(ESPTimgState *s, uint32_t value)
 
 static inline uint64_t esp_wdt_ext_clk_frequency(ESPWdtState* wdt)
 {
-    return FIELD_EX32(wdt->config0, TIMG_WDTCONFIG0, USE_XTAL) ? ESP_XTAL_CLK : ESP_APB_CLK;
+    return FIELD_EX32(wdt->config0, TIMG_WDTCONFIG0, USE_XTAL) ? wdt->xtal_frequency : wdt->apb_frequency;
 }
 
 static inline bool esp_wdt_is_writable(ESPWdtState* wdt)
@@ -413,7 +413,7 @@ static void esp_t0_counter_load(ESPT0State* t)
     esp_t0_alarm_update(t);
 }
 
-static void esp_t0_config_update(ESPT0State* t0, uint32_t value)
+static void esp_t0_config_update(ESPTimgState *s, ESPT0State* t0, uint32_t value)
 {
     const uint32_t former_conf = t0->config;
     /* Assign the new configuration while removing the write-only bits */
@@ -426,7 +426,7 @@ static void esp_t0_config_update(ESPT0State* t0, uint32_t value)
 
     /* Calculate the new frequency */
     const uint32_t new_divider = FIELD_EX32(value, TIMG_T0CONFIG, DIVIDER);
-    const uint64_t new_clk = FIELD_EX32(value, TIMG_T0CONFIG, USE_XTAL) ? ESP_XTAL_CLK : ESP_APB_CLK;
+    const uint64_t new_clk = FIELD_EX32(value, TIMG_T0CONFIG, USE_XTAL) ? s->xtal_frequency : s->apb_frequency;
     const uint64_t new_freq = new_clk / new_divider;
     if (new_freq != t0->counter.frequency) {
         t0->counter.frequency = new_freq;
@@ -639,7 +639,7 @@ static void esp_timg_write(void *opaque, hwaddr addr,
 
         /* Timer (T0) related registers */
         case A_TIMG_T0CONFIG:
-            esp_t0_config_update(t, value);
+            esp_t0_config_update(s, t, value);
             break;
         case A_TIMG_T0LO:
         case A_TIMG_T0HI:
@@ -711,11 +711,13 @@ static void esp_timg_write(void *opaque, hwaddr addr,
         }
         case A_TIMG_INT_CLR_TIMG:
             if (value & t0_mask) {
-                s->t0.raw_st = 0;
+                s->t0.counter.frequency = s->apb_frequency;
+    s->t0.raw_st = 0;
                 qemu_irq_lower(s->t0.interrupt_irq);
             }
             if (value & t1_mask) {
-                s->t1.raw_st = 0;
+                s->t1.counter.frequency = s->apb_frequency;
+    s->t1.raw_st = 0;
                 qemu_irq_lower(s->t1.interrupt_irq);
             }
             if (value & wdt_mask) {
@@ -754,6 +756,8 @@ static void esp_timg_reset_hold(Object *obj, ResetType type)
     /* Reset watchdog */
     esp_virtual_counter_reset(&s->wdt.counter);
     s->wdt.config0 = 0;
+    s->wdt.apb_frequency = s->apb_frequency;
+    s->wdt.xtal_frequency = s->xtal_frequency;
     s->wdt.wkey = ESP_WDT_DEFAULT_WKEY;
     s->wdt.current_stage = 0;
     memset(&s->wdt.stage_conf, 0, sizeof(s->wdt.stage_conf));
@@ -767,6 +771,7 @@ static void esp_timg_reset_hold(Object *obj, ResetType type)
 
     /* Reset Timer0 */
     esp_virtual_counter_reset(&s->t0.counter);
+    s->t0.counter.frequency = s->apb_frequency;
     s->t0.raw_st = 0;
     s->t0.int_enabled = 0;
     s->t0.value_rel = 0;
@@ -775,6 +780,7 @@ static void esp_timg_reset_hold(Object *obj, ResetType type)
 
     /* Reset Timer1 even if the target doesn't have T1 */
     esp_virtual_counter_reset(&s->t1.counter);
+    s->t1.counter.frequency = s->apb_frequency;
     s->t1.raw_st = 0;
     s->t1.int_enabled = 0;
     s->t1.value_rel = 0;
@@ -784,6 +790,12 @@ static void esp_timg_reset_hold(Object *obj, ResetType type)
 
 static void esp_timg_realize(DeviceState *dev, Error **errp)
 {
+    ESPTimgState *s = ESP_TIMG(dev);
+    if (s->apb_frequency == 0 || s->xtal_frequency == 0) {
+        error_setg(errp, "timer clock frequencies must be nonzero");
+        return;
+    }
+    esp_timg_reset_hold(OBJECT(dev), RESET_TYPE_COLD);
 }
 
 
@@ -823,6 +835,8 @@ static void esp_timg_init(Object *obj)
 }
 
 static Property esp_timg_properties[] = {
+    DEFINE_PROP_UINT32("apb-frequency", ESPTimgState, apb_frequency, ESP_APB_CLK),
+    DEFINE_PROP_UINT32("xtal-frequency", ESPTimgState, xtal_frequency, ESP_XTAL_CLK),
     DEFINE_PROP_BOOL("wdt_disable", ESPTimgState, wdt_disable, false),
     DEFINE_PROP_END_OF_LIST(),
 };

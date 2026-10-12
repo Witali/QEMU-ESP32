@@ -111,6 +111,7 @@ struct ESPSysTimerState {
     /* Mirror of the comparators and counters state, only used to speed up
      * reading of A_SYSTIMER_CONF register  */
     uint32_t conf;
+    uint32_t frequency_hz;
     ESPSysTimerCounter counter[ESP_SYSTIMER_COUNTER_COUNT];
     ESPSysTimerComp comparators[ESP_SYSTIMER_COMP_COUNT];
 };

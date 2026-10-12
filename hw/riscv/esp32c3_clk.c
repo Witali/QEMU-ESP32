@@ -83,6 +83,12 @@ static void esp32c3_clock_write(void *opaque, hwaddr addr, uint64_t value,
     ESP32C3ClockState *s = ESP32C3_CLOCK(opaque);
 
     switch(addr) {
+        case A_SYSTEM_CPU_PER_CONF:
+            if (s->writable_clocks) s->cpuperconf = value;
+            break;
+        case A_SYSTEM_SYSCLK_CONF:
+            if (s->writable_clocks) s->sysclk = value;
+            break;
         case A_SYSTEM_CPU_INTR_FROM_CPU_0:
         case A_SYSTEM_CPU_INTR_FROM_CPU_1:
         case A_SYSTEM_CPU_INTR_FROM_CPU_2:
@@ -112,11 +118,11 @@ static void esp32c3_clock_reset_hold(Object *obj, ResetType type)
     /* On board reset, set the proper clocks and dividers */
     s->sysclk = ( 1 << R_SYSTEM_SYSCLK_CONF_PRE_DIV_CNT_SHIFT) |
                 (ESP32C3_CLK_SEL_PLL << R_SYSTEM_SYSCLK_CONF_SOC_CLK_SEL_SHIFT) |
-                (40 << R_SYSTEM_SYSCLK_CONF_CLK_XTAL_FREQ_SHIFT) |
+                (s->xtal_mhz << R_SYSTEM_SYSCLK_CONF_CLK_XTAL_FREQ_SHIFT) |
                 ( 1 << R_SYSTEM_SYSCLK_CONF_CLK_DIV_EN_SHIFT);
 
     /* Divider for PLL clock and APB  frequency */
-    s->cpuperconf = (ESP32C3_PERIOD_SEL_80 << R_SYSTEM_CPU_PER_CONF_CPUPERIOD_SEL_SHIFT) |
+    s->cpuperconf = (s->period_sel << R_SYSTEM_CPU_PER_CONF_CPUPERIOD_SEL_SHIFT) |
                     (ESP32C3_FREQ_SEL_PLL_480 << R_SYSTEM_CPU_PER_CONF_PLL_FREQ_SEL_SHIFT);
 
     /* Initialize the IRQs */
@@ -147,6 +153,13 @@ static void esp32c3_clock_init(Object *obj)
     }
 }
 
+static Property esp32c3_clock_properties[] = {
+    DEFINE_PROP_UINT32("xtal-mhz", ESP32C3ClockState, xtal_mhz, 40),
+    DEFINE_PROP_UINT32("period-sel", ESP32C3ClockState, period_sel, ESP32C3_PERIOD_SEL_80),
+    DEFINE_PROP_BOOL("writable-clocks", ESP32C3ClockState, writable_clocks, false),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void esp32c3_clock_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -155,6 +168,7 @@ static void esp32c3_clock_class_init(ObjectClass *klass, void *data)
 
     rc->phases.hold = esp32c3_clock_reset_hold;
     dc->realize = esp32c3_clock_realize;
+    device_class_set_props(dc, esp32c3_clock_properties);
 
     esp32c3_clock->get_ext_dev_enc_dec_ctrl = esp32c3_clock_get_ext_dev_enc_dec_ctrl;
 }

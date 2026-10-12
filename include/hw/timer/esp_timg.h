@@ -114,6 +114,8 @@ typedef struct ESPWdtState {
     /* The stage is comprised between 0 and ESP_WDT_STAGE_COUNT */
     int current_stage;
     ESPVirtualCounter counter;
+    uint32_t apb_frequency;
+    uint32_t xtal_frequency;
     qemu_irq reset_irq;
     qemu_irq interrupt_irq;
 } ESPWdtState;
@@ -154,6 +156,8 @@ typedef struct ESPTimgState {
     ESPT0State t0;
     ESPT0State t1;
     ESPWdtState wdt;
+    uint32_t apb_frequency;
+    uint32_t xtal_frequency;
     ESPRtcState rtc;
 
     /* Property used to disable the watchdog from command line */
