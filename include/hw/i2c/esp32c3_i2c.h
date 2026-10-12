@@ -34,6 +34,7 @@ struct Esp32C3I2CState {
     Fifo8 rx_fifo;
     Fifo8 tx_fifo;
     bool trans_ongoing;
+    uint32_t fifo_size;
 
     uint32_t ctr_reg;
     uint32_t timeout_reg;

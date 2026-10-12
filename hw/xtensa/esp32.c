@@ -461,7 +461,10 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
         const hwaddr spi_base[] = {
             DR_REG_SPI0_BASE, DR_REG_SPI1_BASE, DR_REG_SPI2_BASE, DR_REG_SPI3_BASE
         };
-        qdev_realize(DEVICE(&s->spi[i]), &s->periph_bus, &error_fatal);
+        if (s->gpio.matrix_enabled && i>=2) {
+            DEVICE(&s->spi[i])->id = g_strdup_printf("spi%d",i);
+            qdev_realize(DEVICE(&s->spi[i]),sysbus_get_default(),&error_fatal);
+        } else qdev_realize(DEVICE(&s->spi[i]),&s->periph_bus,&error_fatal);
 
         esp32_soc_add_periph_device(sys_mem, &s->spi[i], spi_base[i]);
 
@@ -473,7 +476,10 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
         const hwaddr i2c_base[] = {
             DR_REG_I2C_EXT_BASE, DR_REG_I2C1_EXT_BASE
         };
-        qdev_realize(DEVICE(&s->i2c[i]), &s->periph_bus, &error_fatal);
+        if (s->gpio.matrix_enabled) {
+            DEVICE(&s->i2c[i])->id = g_strdup_printf("i2c%d",i);
+            qdev_realize(DEVICE(&s->i2c[i]),sysbus_get_default(),&error_fatal);
+        } else qdev_realize(DEVICE(&s->i2c[i]),&s->periph_bus,&error_fatal);
 
         esp32_soc_add_periph_device(sys_mem, &s->i2c[i], i2c_base[i]);
 
@@ -715,6 +721,7 @@ struct Esp32MachineState {
     DeviceState *flash_dev;
     bool sdspi;
     bool st7789;
+    bool modular;
     uint32_t dac_volume;
     uint32_t dac_rate;
 };
@@ -919,7 +926,11 @@ static void esp32_machine_init(MachineState *machine)
     if (machine->ram_size > 0) {
         qdev_prop_set_bit(DEVICE(&ss->dport), "has_psram", true);
     }
-    qdev_prop_set_bit(DEVICE(ss), "rgb-enabled", !ms->st7789);
+    qdev_prop_set_bit(DEVICE(ss), "rgb-enabled", !ms->st7789 && !ms->modular);
+    if (ms->modular) {
+        qdev_prop_set_bit(DEVICE(&ss->gpio),"matrix-enabled",true);
+        qdev_prop_set_bit(DEVICE(&ss->gpio),"matrix-c3",false);
+    }
     qdev_prop_set_uint32(DEVICE(&ss->i2s0), "volume", ms->dac_volume);
     qdev_prop_set_uint32(DEVICE(&ss->i2s0), "sample-rate", ms->dac_rate);
     if (machine->audiodev) {
@@ -937,7 +948,17 @@ static void esp32_machine_init(MachineState *machine)
         esp32_machine_init_psram(ss, (uint32_t) (machine->ram_size / MiB));
     }
 
-    esp32_machine_init_i2c(ss);
+    if (ms->modular) {
+        memory_region_add_subregion_overlap(get_system_memory(),0x3ff49000,
+            sysbus_mmio_get_region(SYS_BUS_DEVICE(&ss->gpio),1),0);
+        for (unsigned host=2;host<=3;host++) {
+            unsigned base = host==2 ? 11 : 68;
+            for (unsigned cs=0;cs<3;cs++) qdev_connect_gpio_out_named(DEVICE(&ss->spi[host]),SSI_GPIO_CS,cs,
+                qdev_get_gpio_in_named(DEVICE(&ss->gpio),"func-in",base+cs));
+        }
+    } else {
+        esp32_machine_init_i2c(ss);
+    }
 
     esp32_machine_init_openeth(ss);
 
@@ -1044,6 +1065,11 @@ static void esp32_machine_set_sdspi(Object *obj, bool value, Error **errp)
     ESP32_MACHINE(obj)->sdspi = value;
 }
 
+static bool esp32_modular_get(Object *obj, Error **errp)
+{ return ESP32_MACHINE(obj)->modular; }
+static void esp32_modular_set(Object *obj, bool value, Error **errp)
+{ ESP32_MACHINE(obj)->modular=value; }
+
 static bool esp32_machine_get_st7789(Object *obj, Error **errp)
 {
     return ESP32_MACHINE(obj)->st7789;
@@ -1123,6 +1149,7 @@ static void esp32_machine_class_init(ObjectClass *oc, void *data)
                                    esp32_machine_set_sdspi);
     object_class_property_set_description(
         oc, "sdspi", "Attach the SD drive to ESP32 SPI3 with CS on GPIO5");
+    object_class_property_add_bool(oc,"modular",esp32_modular_get,esp32_modular_set);
     object_class_property_add_bool(oc, "st7789",
                                    esp32_machine_get_st7789,
                                    esp32_machine_set_st7789);

@@ -18,3 +18,5 @@ system_ss.add(when: 'CONFIG_BCM2835_SPI', if_true: files('bcm2835_spi.c'))
 system_ss.add(when: 'CONFIG_PNV_SPI', if_true: files('pnv_spi.c'))
 
 system_ss.add(when: 'CONFIG_RISCV_ESP32C2', if_true: files('esp32c2_gpspi.c'))
+
+system_ss.add(when: 'CONFIG_ESP_MODULE', if_true: files('esp_module.c'))

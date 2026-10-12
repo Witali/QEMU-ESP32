@@ -54,6 +54,8 @@ struct SSIPeripheralClass {
     int (*set_cs)(SSIPeripheral *dev, bool select);
     /* define whether or not CS exists and is active low/high */
     SSICSMode cs_polarity;
+    /* Optional board-level CS selection (e.g. GPIO-controlled socket). */
+    bool (*is_selected)(SSIPeripheral *dev);
 
     /* if you have non-standard CS behaviour override this to take control
      * of the CS behaviour at the device level. transfer, set_cs, and

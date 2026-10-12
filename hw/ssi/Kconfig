@@ -32,3 +32,11 @@ config PNV_SPI
 config ALLWINNER_A10_SPI
     bool
     select SSI
+
+config ESP_MODULE
+    bool
+    select SSI
+    select SSI_SD
+    select I2C
+    select ST7789
+    select SSD1306

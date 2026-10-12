@@ -20,7 +20,14 @@ REG32(GPIO_IN1, 0x0040)
 typedef struct Esp32GpioState {
     SysBusDevice parent_obj;
 
-    MemoryRegion iomem;
+    MemoryRegion iomem, iomux;
+    bool matrix_enabled, matrix_c3;
+    uint32_t pin_count;
+    uint64_t enabled;
+    uint32_t func_in[256], func_out[40], iomux_regs[256];
+    unsigned signal_duty[256];
+    qemu_irq duty_gpio[40];
+    struct EspGpioSink *gpio_sinks[40], *duty_sinks[40];
     qemu_irq irq;
     qemu_irq out_gpio[ESP32_GPIO_PIN_COUNT];
     uint32_t out;
@@ -35,3 +42,8 @@ typedef struct Esp32GpioClass {
 } Esp32GpioClass;
 
 void esp32_gpio_set_input(Esp32GpioState *state, unsigned pin, int level);
+
+bool esp_gpio_has_signal(Esp32GpioState *, unsigned pin, unsigned signal, bool input);
+bool esp_gpio_output_enabled(Esp32GpioState *, unsigned pin);
+void esp_gpio_set_signal_duty(Esp32GpioState *, unsigned signal, unsigned duty);
+void esp_gpio_connect(Esp32GpioState *, unsigned pin, qemu_irq sink, bool pwm);

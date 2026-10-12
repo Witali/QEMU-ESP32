@@ -10,6 +10,8 @@
 #include "qemu/osdep.h"
 #include "hw/i2c/esp32c3_i2c.h"
 #include "hw/irq.h"
+#include "hw/qdev-properties.h"
+#include "qapi/error.h"
 #include "migration/vmstate.h"
 #include "qemu/error-report.h"
 #include "qemu/log.h"
@@ -361,11 +363,34 @@ static const VMStateDescription vmstate_esp32c3_i2c = {
     },
 };
 
+static void esp32c3_i2c_realize(DeviceState *dev, Error **errp)
+{
+    Esp32C3I2CState *s = ESP32C3_I2C(dev);
+    if (s->fifo_size != 16 && s->fifo_size != 32) {
+        error_setg(errp, "ESP I2C FIFO size must be 16 or 32");
+        return;
+    }
+    if (s->fifo_size != ESP32C3_I2C_FIFO_LENGTH) {
+        fifo8_destroy(&s->tx_fifo);
+        fifo8_destroy(&s->rx_fifo);
+        fifo8_create(&s->tx_fifo, s->fifo_size);
+        fifo8_create(&s->rx_fifo, s->fifo_size);
+    }
+}
+
+static const Property esp32c3_i2c_properties[] = {
+    DEFINE_PROP_UINT32("fifo-size", Esp32C3I2CState, fifo_size,
+                       ESP32C3_I2C_FIFO_LENGTH),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void esp32c3_i2c_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     ResettableClass *rc = RESETTABLE_CLASS(klass);
 
+    dc->realize = esp32c3_i2c_realize;
+    device_class_set_props(dc, esp32c3_i2c_properties);
     dc->vmsd = &vmstate_esp32c3_i2c;
     rc->phases.hold = esp32c3_i2c_reset_hold;
 }

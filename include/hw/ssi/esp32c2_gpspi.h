@@ -9,7 +9,7 @@ struct ESP32C2GpspiState {
     SysBusDevice parent;
     MemoryRegion iomem;
     SSIBus *bus;
-    qemu_irq irq, cs;
+    qemu_irq irq, cs[6];
     ESPGdmaState *gdma;
     uint32_t regs[0x100/4];
 };

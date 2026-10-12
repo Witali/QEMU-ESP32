@@ -1,6 +1,6 @@
 /*
  * ESP32-C2 general-purpose SPI2 master: FIFO and GDMA data transactions.
- * Command/address phases, bus timing and external MISO devices are not modeled.
+ * Command/address/dummy phases and external MISO; timing is synchronous.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
@@ -34,7 +34,8 @@ static void gpspi_update_irq(ESP32C2GpspiState *s)
 static void gpspi_transaction(ESP32C2GpspiState *s)
 {
     size_t length = ((GPSPI_REG(s, GPSPI_MS_DLEN) & 0x3ffff) + 8) / 8;
-    g_autofree uint8_t *data = g_malloc0(length);
+    g_autofree uint8_t *data = g_malloc(length);
+    memset(data,0xff,length);
     bool dma_tx = GPSPI_REG(s, GPSPI_DMA_CONF) & BIT(28);
     bool dma_rx = GPSPI_REG(s, GPSPI_DMA_CONF) & BIT(27);
     bool write = GPSPI_REG(s, GPSPI_USER) & BIT(27);
@@ -52,16 +53,36 @@ static void gpspi_transaction(ESP32C2GpspiState *s)
                    MIN(length, 64 - start));
         }
     }
-    qemu_set_irq(s->cs, 0);
-    ssi_transfer_buf(s->bus, data, read ? data : NULL, length);
+    uint32_t user = GPSPI_REG(s,GPSPI_USER), misc = GPSPI_REG(s,0x20);
+    for (unsigned i=0;i<6;i++) qemu_set_irq(s->cs[i], !!(misc & BIT(i)));
+    if (user & BIT(31)) {
+        unsigned bits = (GPSPI_REG(s,0x18)>>28)+1;
+        for (int shift = (bits-1)/8*8; shift>=0; shift-=8)
+            ssi_transfer(s->bus,(GPSPI_REG(s,0x18)>>shift)&0xff);
+    }
+    if (user & BIT(30)) {
+        unsigned bits = (GPSPI_REG(s,0x14)>>27)+1;
+        for (unsigned i=0;i<(bits+7)/8;i++) ssi_transfer(s->bus,(GPSPI_REG(s,4)>>(24-i*8))&0xff);
+    }
+    if (user & BIT(29)) {
+        unsigned cycles = (GPSPI_REG(s,0x14)&255)+1;
+        for (unsigned i=0;i<(cycles+7)/8;i++) ssi_transfer(s->bus,0xff);
+    }
+    if (read && write && !(user & BIT(0))) {
+        ssi_transfer_buf(s->bus,data,NULL,length);
+        ssi_transfer_buf(s->bus,NULL,data,length);
+    } else if (read || write) {
+        ssi_transfer_buf(s->bus,data,read ? data : NULL,length);
+    }
     if (read) {
         if (dma_rx) {
             esp_gdma_write_channel(s->gdma, 0, data, length);
         } else {
-            memcpy(&GPSPI_REG(s, GPSPI_W0), data, MIN(length, 64));
+            size_t start = (GPSPI_REG(s,GPSPI_USER)&BIT(24)) ? 32 : 0;
+            memcpy(((uint8_t *)&GPSPI_REG(s,GPSPI_W0))+start,data,MIN(length,64-start));
         }
     }
-    qemu_set_irq(s->cs, 1);
+    if (!(GPSPI_REG(s,0x20)&BIT(30))) for (unsigned i=0;i<6;i++) qemu_set_irq(s->cs[i],1);
     GPSPI_REG(s, GPSPI_INT_RAW) |= GPSPI_TRANS_DONE;
     gpspi_update_irq(s);
 }
@@ -110,8 +131,9 @@ static void gpspi_init(Object *object)
     memory_region_init_io(&s->iomem, object, &gpspi_ops, s, TYPE_ESP32C2_GPSPI, 0x100);
     sysbus_init_mmio(SYS_BUS_DEVICE(object), &s->iomem);
     sysbus_init_irq(SYS_BUS_DEVICE(object), &s->irq);
-    qdev_init_gpio_out_named(DEVICE(object), &s->cs, SSI_GPIO_CS, 1);
+    qdev_init_gpio_out_named(DEVICE(object),s->cs,SSI_GPIO_CS,6);
     s->bus = ssi_create_bus(DEVICE(object), "spi");
+    ssi_set_idle_value(s->bus,0xff);
 }
 
 static void gpspi_reset(DeviceState *device)
@@ -119,7 +141,8 @@ static void gpspi_reset(DeviceState *device)
     ESP32C2GpspiState *s = ESP32C2_GPSPI(device);
     memset(s->regs, 0, sizeof(s->regs));
     qemu_set_irq(s->irq, 0);
-    qemu_set_irq(s->cs, 1);
+    GPSPI_REG(s,0x20) = 0x3f;
+    for (unsigned i=0;i<6;i++) qemu_set_irq(s->cs[i],1);
 }
 
 static void gpspi_class_init(ObjectClass *klass, void *data)

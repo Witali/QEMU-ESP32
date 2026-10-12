@@ -49,6 +49,7 @@
 #include "hw/misc/esp32c3_jtag.h"
 #include "hw/dma/esp32c3_gdma.h"
 #include "hw/display/ssd1306.h"
+#include "hw/ssi/esp32c2_gpspi.h"
 #include "hw/i2c/esp32c3_i2c.h"
 #include "hw/net/can/esp32c3_twai.h"
 #include "hw/audio/esp32c3_pcm.h"
@@ -98,6 +99,8 @@ struct Esp32C3MachineState {
     Esp32C3WifiState wifi;
     Esp32C3RadioState radio;
 
+    ESP32C2GpspiState spi2;
+    bool default_peripherals;
     uint32_t syscon_wifi_clk_en;
 };
 
@@ -551,10 +554,17 @@ static void esp32c3_machine_init(MachineState *machine)
 
     /* GPIO realization */
     {
+        qdev_prop_set_bit(DEVICE(&ms->gpio), "matrix-enabled",
+                          !ms->default_peripherals);
+        qdev_prop_set_bit(DEVICE(&ms->gpio),"matrix-c3",true);
+        qdev_prop_set_uint32(DEVICE(&ms->gpio),"pin-count",22);
         sysbus_realize(SYS_BUS_DEVICE(&ms->gpio), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gpio), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_GPIO_BASE, mr, 0);
     }
+
+    memory_region_add_subregion_overlap(sys_mem,0x60009000,
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gpio),1),0);
 
     /* (Extmem) Cache realization */
     {
@@ -704,11 +714,22 @@ static void esp32c3_machine_init(MachineState *machine)
         memory_region_add_subregion_overlap(sys_mem, DR_REG_AES_XTS_BASE, mr, 0);
     }
 
+    object_initialize_child(OBJECT(machine),"spi2",&ms->spi2,TYPE_ESP32C2_GPSPI);
+    DEVICE(&ms->spi2)->id = g_strdup("spi2");
+    ms->spi2.gdma = ESP_GDMA(&ms->gdma);
+    sysbus_realize(SYS_BUS_DEVICE(&ms->spi2),&error_fatal);
+    memory_region_add_subregion_overlap(sys_mem,DR_REG_SPI2_BASE,
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->spi2),0),0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(&ms->spi2),0,qdev_get_gpio_in(intmatrix_dev,ETS_SPI2_INTR_SOURCE));
+    for (unsigned i=0;i<6;i++) qdev_connect_gpio_out_named(DEVICE(&ms->spi2),SSI_GPIO_CS,i,
+        qdev_get_gpio_in_named(DEVICE(&ms->gpio),"func-in",68+i));
+
     /* I2C controller and the board's 72x40 SSD1306 panel. */
     {
         DeviceState *oled;
         MemoryRegion *mr;
 
+        DEVICE(&ms->i2c)->id = g_strdup("i2c0");
         sysbus_realize(SYS_BUS_DEVICE(&ms->i2c), &error_fatal);
         mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->i2c), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_I2C_EXT_BASE,
@@ -718,13 +739,16 @@ static void esp32c3_machine_init(MachineState *machine)
             qdev_get_gpio_in(DEVICE(&ms->intmatrix),
                              ETS_I2C_EXT0_INTR_SOURCE));
 
-        oled = DEVICE(i2c_slave_new(TYPE_SSD1306, 0x3c));
-        qdev_prop_set_uint32(oled, "visible-width", 72);
-        qdev_prop_set_uint32(oled, "visible-height", 40);
-        qdev_prop_set_uint32(oled, "column-offset", 28);
-        qdev_prop_set_uint32(oled, "magnify", 4);
-        i2c_slave_realize_and_unref(I2C_SLAVE(oled), ms->i2c.bus,
-                                    &error_fatal);
+        if (ms->default_peripherals) {
+            /* Preserve the original board attachment in legacy mode. */
+            oled = DEVICE(i2c_slave_new(TYPE_SSD1306, 0x3c));
+            qdev_prop_set_uint32(oled, "visible-width", 72);
+            qdev_prop_set_uint32(oled, "visible-height", 40);
+            qdev_prop_set_uint32(oled, "column-offset", 28);
+            qdev_prop_set_uint32(oled, "magnify", 4);
+            i2c_slave_realize_and_unref(I2C_SLAVE(oled), ms->i2c.bus,
+                                       &error_fatal);
+        }
     }
 
     /* QEMU-only signed 16-bit, 48 kHz stereo PCM output. */
@@ -748,12 +772,20 @@ static void esp32c3_machine_init(MachineState *machine)
 }
 
 
+static bool esp32c3_defaults_get(Object *obj, Error **errp)
+{ return ESP32C3_MACHINE(obj)->default_peripherals; }
+static void esp32c3_defaults_set(Object *obj, bool value, Error **errp)
+{ ESP32C3_MACHINE(obj)->default_peripherals = value; }
+static void esp32c3_instance_init(Object *obj)
+{ ESP32C3_MACHINE(obj)->default_peripherals = true; }
+
 /* Initialize machine type */
 static void esp32c3_machine_class_init(ObjectClass *oc, void *data)
 {
     MachineClass *mc = MACHINE_CLASS(oc);
     mc->desc = "Espressif ESP32-C3 machine";
     mc->default_cpu_type = TYPE_ESP_RISCV_CPU;
+    object_class_property_add_bool(oc,"default-peripherals",esp32c3_defaults_get,esp32c3_defaults_set);
     mc->init = esp32c3_machine_init;
     mc->max_cpus = 1;
     mc->default_cpus = 1;
@@ -772,6 +804,7 @@ static const TypeInfo esp32c3_info = {
     .instance_size = sizeof(Esp32C3MachineState),
     /* Override the init function to one we defined above */
     .class_init = esp32c3_machine_class_init,
+    .instance_init = esp32c3_instance_init,
 };
 
 static void esp32c3_machine_type_init(void)

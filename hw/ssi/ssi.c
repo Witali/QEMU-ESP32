@@ -160,6 +160,15 @@ void ssi_set_idle_value(SSIBus *bus, uint32_t value)
     bus->idle_value = value;
 }
 
+static bool ssi_selected(SSIPeripheral *p)
+{
+    SSIPeripheralClass *c = p->spc;
+    return (!c->is_selected || c->is_selected(p)) &&
+        ((p->cs && c->cs_polarity == SSI_CS_HIGH) ||
+         (!p->cs && c->cs_polarity == SSI_CS_LOW) ||
+         c->cs_polarity == SSI_CS_NONE);
+}
+
 uint32_t ssi_transfer(SSIBus *bus, uint32_t val)
 {
     BusState *b = BUS(bus);
@@ -177,10 +186,8 @@ uint32_t ssi_transfer(SSIBus *bus, uint32_t val)
          */
         selected |=
             p->spc->transfer_raw != ssi_transfer_raw_default ||
-            (p->cs && p->spc->cs_polarity == SSI_CS_HIGH) ||
-            (!p->cs && p->spc->cs_polarity == SSI_CS_LOW) ||
-            p->spc->cs_polarity == SSI_CS_NONE;
-        r |= p->spc->transfer_raw(p, val);
+            ssi_selected(p);
+        if (!p->spc->is_selected || p->spc->is_selected(p)) r |= p->spc->transfer_raw(p,val);
     }
 
     return selected ? r : bus->idle_value;
@@ -191,20 +198,42 @@ void ssi_transfer_buf(SSIBus *bus, const uint8_t *tx,
 {
     BusState *b = BUS(bus);
     BusChild *kid = QTAILQ_FIRST(&b->children);
+    /* Controllers may use the same FIFO for TX and RX. */
+    g_autofree uint8_t *original_tx = rx && tx == rx ? g_memdup2(tx,len) : NULL;
+    if (original_tx) tx = original_tx;
 
     if (kid && !QTAILQ_NEXT(kid, sibling)) {
         SSIPeripheral *p = SSI_PERIPHERAL(kid->child);
         SSIPeripheralClass *ssc = p->spc;
-        bool selected =
-            (p->cs && ssc->cs_polarity == SSI_CS_HIGH) ||
-            (!p->cs && ssc->cs_polarity == SSI_CS_LOW) ||
-            ssc->cs_polarity == SSI_CS_NONE;
+        bool selected = ssi_selected(p);
 
         if (selected && ssc->transfer_buf &&
             ssc->transfer_raw == ssi_transfer_raw_default) {
             ssc->transfer_buf(p, tx, rx, len);
             return;
         }
+    }
+
+    bool batch = true;
+    QTAILQ_FOREACH(kid,&b->children,sibling) {
+        SSIPeripheral *p = SSI_PERIPHERAL(kid->child);
+        if (!p->spc->transfer_buf || p->spc->transfer_raw != ssi_transfer_raw_default) batch=false;
+    }
+    if (batch) {
+        g_autofree uint8_t *scratch = rx ? g_malloc(len) : NULL;
+        if (rx) memset(rx,0,len);
+        bool selected = false;
+        QTAILQ_FOREACH(kid,&b->children,sibling) {
+            SSIPeripheral *p = SSI_PERIPHERAL(kid->child);
+            SSIPeripheralClass *ssc = p->spc;
+            if (ssi_selected(p)) {
+                selected=true;
+                ssc->transfer_buf(p,tx,scratch,len);
+                if (rx) for (size_t i=0;i<len;i++) rx[i] |= scratch[i];
+            }
+        }
+        if (rx && !selected) memset(rx,bus->idle_value,len);
+        return;
     }
 
     for (size_t i = 0; i < len; ++i) {

@@ -47,6 +47,7 @@
 #include "hw/dma/esp32c2_gdma.h"
 #include "hw/ssi/ssi.h"
 #include "hw/ssi/esp32c2_gpspi.h"
+#include "hw/i2c/esp32c3_i2c.h"
 #include "hw/misc/esp32c3_radio.h"
 #include "hw/net/esp32c3_wifi.h"
 
@@ -86,7 +87,8 @@ struct Esp32C2MachineState {
     Esp32C3RadioState radio;
     Esp32C3WifiState wifi;
 
-    DeviceState *panel;
+    Esp32C3I2CState i2c;
+    bool default_peripherals;
 
     uint32_t efuse_regs[0x200 / 4];
     uint32_t ledc_regs[0x200 / 4];
@@ -228,15 +230,15 @@ static void esp32c2_io_write(void *opaque, hwaddr addr, uint64_t value, unsigned
         unsigned offset = absolute_addr - DR_REG_LEDC_BASE;
         ms->ledc_regs[offset / 4] = value;
         ms->ledc_regs[0x10 / 4] = ms->ledc_regs[0x08 / 4];
-        /* Small TV GPIO18: average active-low LEDC channel 0 duty. */
-        unsigned bits = ms->ledc_regs[0xa0 / 4] & 15;
-        unsigned high = (ms->ledc_regs[0x08 / 4] >> 4);
-        unsigned period = 1u << bits;
-        unsigned brightness = 1000 - MIN(high, period) * 1000 / period;
-        if (!(ms->ledc_regs[0] & BIT(2))) {
-            brightness = (ms->ledc_regs[0] & BIT(3)) ? 0 : 1000;
+        /* Route all six LEDC channels through the configured GPIO matrix. */
+        for (unsigned channel=0;channel<6;channel++) {
+            unsigned conf = ms->ledc_regs[channel*0x14/4];
+            unsigned bits = ms->ledc_regs[(0xa0+(conf&3)*8)/4]&15;
+            unsigned period = 1u << bits;
+            unsigned high = ms->ledc_regs[(channel*0x14+8)/4] >> 4;
+            unsigned duty = (conf & BIT(2)) ? MIN(high,period)*1000/period : ((conf & BIT(3)) ? 1000 : 0);
+            esp_gpio_set_signal_duty(ESP32_GPIO(&ms->gpio),45+channel,duty);
         }
-        if (ms->panel) qemu_set_irq(qdev_get_gpio_in_named(ms->panel, "brightness", 0), brightness);
         return;
     }
     if (addr + ESP32C2_IO_START_ADDR == DR_REG_SYSCON_BASE +
@@ -518,10 +520,16 @@ static void esp32c2_machine_init(MachineState *machine)
 
     /* GPIO realization */
     {
+        qdev_prop_set_bit(DEVICE(&ms->gpio),"matrix-enabled",true);
+        qdev_prop_set_bit(DEVICE(&ms->gpio),"matrix-c3",true);
+        qdev_prop_set_uint32(DEVICE(&ms->gpio),"pin-count",21);
         sysbus_realize(SYS_BUS_DEVICE(&ms->gpio), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gpio), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_GPIO_BASE, mr, 0);
     }
+
+    memory_region_add_subregion_overlap(sys_mem,0x60009000,
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gpio),1),0);
 
     /* (Extmem) Cache realization */
     {
@@ -614,27 +622,45 @@ static void esp32c2_machine_init(MachineState *machine)
         memory_region_add_subregion_overlap(sys_mem, DR_REG_AES_XTS_BASE, mr, 0);
     }
 
-    /* Small TV: hardware SPI2, GPIO5 D/C, GPIO1 reset, active-low backlight. */
+    /* External peripherals are separate QOM devices on exported SPI/I2C buses. */
     object_initialize_child(OBJECT(machine), "spi2", &ms->spi2, TYPE_ESP32C2_GPSPI);
+    DEVICE(&ms->spi2)->id = g_strdup("spi2");
     ms->spi2.gdma = ESP_GDMA(&ms->gdma);
     sysbus_realize(SYS_BUS_DEVICE(&ms->spi2), &error_fatal);
     memory_region_add_subregion_overlap(sys_mem, DR_REG_SPI2_BASE,
-        sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->spi2), 0), 0);
-    sysbus_connect_irq(SYS_BUS_DEVICE(&ms->spi2), 0,
-        qdev_get_gpio_in(intmatrix_dev, ETS_SPI2_INTR_SOURCE));
-    DeviceState *panel = ms->panel = qdev_new("st7789");
-    qdev_prop_set_uint32(panel, "visible-width", 240);
-    qdev_prop_set_bit(panel, "controls", false);
-    qdev_prop_set_bit(panel, "panel-inverted", true);
-    ssi_realize_and_unref(panel, ms->spi2.bus, &error_fatal);
-    qemu_set_irq(qdev_get_gpio_in_named(panel, SSI_GPIO_CS, 0), 0); /* CS=-1: always selected. */
-    qemu_set_irq(qdev_get_gpio_in_named(panel, "backlight", 0), 1);
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), "gpio-out", 5,
-        qdev_get_gpio_in_named(panel, "dc", 0));
-    qdev_connect_gpio_out_named(DEVICE(&ms->gpio), "gpio-out", 1,
-        qdev_get_gpio_in_named(panel, "reset-pin", 0));
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->spi2),0),0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(&ms->spi2),0,qdev_get_gpio_in(intmatrix_dev,ETS_SPI2_INTR_SOURCE));
+    for (unsigned i=0;i<6;i++) qdev_connect_gpio_out_named(DEVICE(&ms->spi2),SSI_GPIO_CS,i,
+        qdev_get_gpio_in_named(DEVICE(&ms->gpio),"func-in",68+i));
+    object_initialize_child(OBJECT(machine),"i2c",&ms->i2c,TYPE_ESP32C3_I2C);
+    DEVICE(&ms->i2c)->id = g_strdup("i2c0");
+    qdev_prop_set_uint32(DEVICE(&ms->i2c), "fifo-size", 16);
+    sysbus_realize(SYS_BUS_DEVICE(&ms->i2c),&error_fatal);
+    memory_region_add_subregion_overlap(sys_mem,0x60013000,
+        sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->i2c),0),0);
+    sysbus_connect_irq(SYS_BUS_DEVICE(&ms->i2c),0,qdev_get_gpio_in(intmatrix_dev,22));
+    if (ms->default_peripherals) {
+        DeviceState *lcd = qdev_new("esp-spi-module");
+        qdev_prop_set_string(lcd,"model","st7789");
+        object_property_set_link(OBJECT(lcd),"gpio",OBJECT(&ms->gpio),&error_fatal);
+        qdev_prop_set_int32(lcd,"sck",4); qdev_prop_set_int32(lcd,"mosi",6);
+        qdev_prop_set_int32(lcd,"dc-gpio",5); qdev_prop_set_int32(lcd,"reset-gpio",1);
+        qdev_prop_set_int32(lcd,"backlight-gpio",18);
+        qdev_prop_set_bit(lcd,"backlight-active-low",true);
+        qdev_prop_set_string(lcd,"properties","{\"visible-width\":240,\"controls\":false,\"panel-inverted\":true}");
+        object_property_add_child(OBJECT(machine),"lcd",OBJECT(lcd));
+        ssi_realize_and_unref(lcd,ms->spi2.bus,&error_fatal);
+    }
+
 }
 
+
+static bool esp32c2_defaults_get(Object *obj, Error **errp)
+{ return ESP32C2_MACHINE(obj)->default_peripherals; }
+static void esp32c2_defaults_set(Object *obj, bool value, Error **errp)
+{ ESP32C2_MACHINE(obj)->default_peripherals = value; }
+static void esp32c2_instance_init(Object *obj)
+{ ESP32C2_MACHINE(obj)->default_peripherals = true; }
 
 /* Initialize machine type */
 static void esp32c2_machine_class_init(ObjectClass *oc, void *data)
@@ -642,6 +668,7 @@ static void esp32c2_machine_class_init(ObjectClass *oc, void *data)
     MachineClass *mc = MACHINE_CLASS(oc);
     mc->desc = "Espressif ESP32-C2 Small TV (experimental)";
     mc->default_cpu_type = TYPE_ESP_RISCV_CPU;
+    object_class_property_add_bool(oc,"default-peripherals",esp32c2_defaults_get,esp32c2_defaults_set);
     mc->init = esp32c2_machine_init;
     mc->max_cpus = 1;
     mc->default_cpus = 1;
@@ -657,6 +684,7 @@ static const TypeInfo esp32c2_info = {
     .instance_size = sizeof(Esp32C2MachineState),
     /* Override the init function to one we defined above */
     .class_init = esp32c2_machine_class_init,
+    .instance_init = esp32c2_instance_init,
 };
 
 static void esp32c2_machine_type_init(void)
