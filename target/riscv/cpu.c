@@ -2857,8 +2857,7 @@ static char **riscv_isa_extensions_list(RISCVCPU *cpu, int *count)
 void riscv_isa_write_fdt(RISCVCPU *cpu, void *fdt, char *nodename)
 {
     RISCVCPUClass *mcc = RISCV_CPU_GET_CLASS(cpu);
-    const size_t maxlen = sizeof("rv128i");
-    g_autofree char *isa_base = g_new(char, maxlen);
+    g_autofree char *isa_base = NULL;
     g_autofree char *riscv_isa;
     char **isa_extensions;
     int count = 0;
@@ -2867,7 +2866,7 @@ void riscv_isa_write_fdt(RISCVCPU *cpu, void *fdt, char *nodename)
     riscv_isa = riscv_isa_string(cpu);
     qemu_fdt_setprop_string(fdt, nodename, "riscv,isa", riscv_isa);
 
-    snprintf(isa_base, maxlen, "rv%di", xlen);
+    isa_base = g_strdup_printf("rv%di", xlen);
     qemu_fdt_setprop_string(fdt, nodename, "riscv,isa-base", isa_base);
 
     isa_extensions = riscv_isa_extensions_list(cpu, &count);
