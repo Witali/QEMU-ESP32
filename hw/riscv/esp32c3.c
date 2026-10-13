@@ -101,6 +101,9 @@ struct Esp32C3MachineState {
 
     ESP32C2GpspiState spi2;
     bool default_peripherals;
+    /* Static strings selected by the validated machine properties. */
+    const char *flash_model;
+    unsigned flash_size_mb; /* Zero means infer capacity from the MTD image. */
     uint32_t syscon_wifi_clk_en;
 };
 
@@ -224,30 +227,42 @@ static void esp32c3_init_spi_flash(Esp32C3MachineState *ms, BlockBackend* blk)
 {
     DeviceState *spi_master = DEVICE(&ms->spi1);
     BusState* spi_bus = qdev_get_child_bus(spi_master, "spi");
-    const char* flash_model = NULL;
+    static const struct {
+        unsigned size_mb;
+        const char *legacy;
+        const char *gd;
+        const char *winbond;
+    } models[] = {
+        { 2, "w25x16", "gd25q16", "w25q16" },
+        { 4, "gd25q32", "gd25q32", "w25q32" },
+        { 8, "gd25q64", "gd25q64", "w25q64" },
+        { 16, "is25lp128", "gd25q128", "w25q128" },
+    };
+    const char *flash_model = NULL;
     int64_t image_size = blk_getlength(blk);
 
-    switch (image_size) {
-        case 2 * MB:
-            flash_model = "w25x16";
+    if (ms->flash_size_mb && image_size != (int64_t)ms->flash_size_mb * MB) {
+        error_report("esp32c3: MTD image size must match flash-size=%uM",
+                     ms->flash_size_mb);
+        exit(EXIT_FAILURE);
+    }
+    for (size_t i = 0; i < ARRAY_SIZE(models); i++) {
+        if (image_size == (int64_t)models[i].size_mb * MB) {
+            flash_model = !strcmp(ms->flash_model, "gd25q") ? models[i].gd :
+                          !strcmp(ms->flash_model, "w25q") ? models[i].winbond :
+                          models[i].legacy;
             break;
-        case 4 * MB:
-            flash_model = "gd25q32";
-            break;
-        case 8 * MB:
-            flash_model = "gd25q64";
-            break;
-        case 16 * MB:
-            flash_model = "is25lp128";
-            break;
-        default:
-            error_report("Drive size error: only 2, 4, 8, and 16MB images are supported");
-            return;
+        }
+    }
+    if (!flash_model) {
+        error_report("esp32c3: MTD image must be exactly 2, 4, 8 or 16 MiB");
+        exit(EXIT_FAILURE);
     }
 
     /* Create the SPI flash model */
     DeviceState *flash_dev = qdev_new(flash_model);
     qdev_prop_set_drive(flash_dev, "drive", blk);
+    qdev_prop_set_bit(flash_dev, "byte-dummy-cycles", true);
     qdev_prop_set_uint8(flash_dev, "cs", 1);
 
     /* Realize the SPI flash, its "drive" (blk) property must already be set! */
@@ -540,6 +555,9 @@ static void esp32c3_machine_init(MachineState *machine)
         memory_region_add_subregion_overlap(sys_mem, DR_REG_SPI1_BASE, mr, 0);
         if (blk) {
             esp32c3_init_spi_flash(ms, blk);
+        } else if (ms->flash_size_mb || strcmp(ms->flash_model, "auto")) {
+            error_report("esp32c3: flash-model/flash-size require an MTD drive");
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -776,8 +794,51 @@ static bool esp32c3_defaults_get(Object *obj, Error **errp)
 { return ESP32C3_MACHINE(obj)->default_peripherals; }
 static void esp32c3_defaults_set(Object *obj, bool value, Error **errp)
 { ESP32C3_MACHINE(obj)->default_peripherals = value; }
+static char *esp32c3_flash_model_get(Object *obj, Error **errp)
+{
+    return g_strdup(ESP32C3_MACHINE(obj)->flash_model);
+}
+
+static void esp32c3_flash_model_set(Object *obj, const char *value, Error **errp)
+{
+    static const char *const names[] = { "auto", "gd25q", "w25q" };
+
+    for (size_t i = 0; i < ARRAY_SIZE(names); i++) {
+        if (!strcmp(value, names[i])) {
+            ESP32C3_MACHINE(obj)->flash_model = names[i];
+            return;
+        }
+    }
+    error_setg(errp, "flash-model must be auto, gd25q or w25q");
+}
+
+static char *esp32c3_flash_size_get(Object *obj, Error **errp)
+{
+    unsigned size = ESP32C3_MACHINE(obj)->flash_size_mb;
+    return size ? g_strdup_printf("%uM", size) : g_strdup("auto");
+}
+
+static void esp32c3_flash_size_set(Object *obj, const char *value, Error **errp)
+{
+    static const char *const sizes[] = { "auto", "2M", "4M", "8M", "16M" };
+    static const unsigned capacities[] = { 0, 2, 4, 8, 16 };
+
+    for (size_t i = 0; i < ARRAY_SIZE(sizes); i++) {
+        if (!strcmp(value, sizes[i])) {
+            ESP32C3_MACHINE(obj)->flash_size_mb = capacities[i];
+            return;
+        }
+    }
+    error_setg(errp, "flash-size must be auto, 2M, 4M, 8M or 16M (MiB)");
+}
+
 static void esp32c3_instance_init(Object *obj)
-{ ESP32C3_MACHINE(obj)->default_peripherals = true; }
+{
+    Esp32C3MachineState *ms = ESP32C3_MACHINE(obj);
+
+    ms->default_peripherals = true;
+    ms->flash_model = "auto";
+}
 
 /* Initialize machine type */
 static void esp32c3_machine_class_init(ObjectClass *oc, void *data)
@@ -786,6 +847,14 @@ static void esp32c3_machine_class_init(ObjectClass *oc, void *data)
     mc->desc = "Espressif ESP32-C3 machine";
     mc->default_cpu_type = TYPE_ESP_RISCV_CPU;
     object_class_property_add_bool(oc,"default-peripherals",esp32c3_defaults_get,esp32c3_defaults_set);
+    object_class_property_add_str(oc, "flash-model", esp32c3_flash_model_get,
+                                  esp32c3_flash_model_set);
+    object_class_property_set_description(oc, "flash-model",
+        "Flash family: auto (legacy mapping), gd25q or w25q");
+    object_class_property_add_str(oc, "flash-size", esp32c3_flash_size_get,
+                                  esp32c3_flash_size_set);
+    object_class_property_set_description(oc, "flash-size",
+        "Flash capacity: auto (image size), 2M, 4M, 8M or 16M; image must match");
     mc->init = esp32c3_machine_init;
     mc->max_cpus = 1;
     mc->default_cpus = 1;

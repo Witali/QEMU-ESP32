@@ -38,6 +38,11 @@ enum {
     CMD_WRDI = 0x4,
     CMD_WREN = 0x6,
     CMD_READ = 0x03,
+    CMD_FAST_READ = 0x0b,
+    CMD_DOUT = 0x3b,
+    CMD_QOUT = 0x6b,
+    CMD_DIO = 0xbb,
+    CMD_QIO = 0xeb,
     CMD_HPM = 0xa3,
 };
 
@@ -127,11 +132,11 @@ static void esp32c3_spi_txrx_buffer(ESP32C3SpiState *s,
     int bytes = MAX(tx_bytes, rx_bytes);
     for (int i = 0; i < bytes; ++i) {
         uint8_t byte = 0;
-        if (byte < tx_bytes) {
+        if (i < tx_bytes) {
             memcpy(&byte, tx + i, 1);
         }
         uint32_t res = ssi_transfer(s->spi, byte);
-        if (byte < rx_bytes) {
+        if (i < rx_bytes) {
             memcpy(rx + i, &res, 1);
         }
     }
@@ -139,7 +144,7 @@ static void esp32c3_spi_txrx_buffer(ESP32C3SpiState *s,
 
 static void esp32c3_spi_dummy_cycles(ESP32C3SpiState *s, uint32_t dummy_bytes) {
     for (int i = 0; i < dummy_bytes; i++) {
-        ssi_transfer(s->spi, 0);
+        ssi_transfer(s->spi, 0xff);
     }
 }
 
@@ -153,6 +158,12 @@ static void esp32c3_spi_perform_transaction(ESP32C3SpiState *s, ESP32C3SpiTransa
         if (man_enc_enabled && xts_aes_class->is_ciphertext_spi_visible(s->xts_aes) && (t->cmd == CMD_PP)) {
             xts_aes_class->read_ciphertext(s->xts_aes, t->data, &(t->tx_bytes), &(t->addr), &(t->addr_bytes));
         }
+    }
+    if (t->addr_bytes > sizeof(t->addr) || t->cmd_bytes > sizeof(t->cmd) ||
+        (t->data == s->data_reg &&
+         MAX(t->tx_bytes, t->rx_bytes) > sizeof(s->data_reg))) {
+        qemu_log_mask(LOG_GUEST_ERROR, "ESP32-C3 SPI: invalid transfer length\n");
+        return;
     }
     qemu_set_irq(s->cs_gpio[0], 0);
     esp32c3_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, NULL, 0);
@@ -174,20 +185,38 @@ static inline void esp32c3_spi_get_addr(ESP32C3SpiState *s, uint32_t* addr, uint
     *len = (address_len + 1) / 8;
 }
 
-static inline void esp32c3_spi_get_dummy(ESP32C3SpiState *s, uint32_t* len)
+static inline void esp32c3_spi_get_dummy(ESP32C3SpiState *s, uint32_t *len)
 {
-    const uint32_t dummy_count = FIELD_EX32(s->mem_user1, SPI_MEM_USER1, USR_DUMMY_CYCLELEN);
+    uint32_t clocks = FIELD_EX32(s->mem_user1, SPI_MEM_USER1,
+                                 USR_DUMMY_CYCLELEN) + 1;
+    unsigned lanes = 1;
 
-    /* Dummy cycles are interpreted as bytes by the emulated SPI Flash. As such, we shall convert
-     * our dummy cycles count in bytes, rounding it up. For example:
-     * 0 cycles = 0 byte
-     * 1 cycle = 1 byte
-     * ...
-     * 8 cycles = 1 byte
-     * 9 cycles = 2 bytes
-     * etc..
-     */
-    *len = (dummy_count + 7) / 8;
+    /* In DOUT/QOUT the address and dummy phase are still single-wire.
+     * DIO/QIO send mode bits and dummy clocks on two/four wires. */
+    if (s->mem_ctrl & R_SPI_MEM_CTRL_FREAD_QIO_MASK) {
+        lanes = 4;
+    } else if (s->mem_ctrl & R_SPI_MEM_CTRL_FREAD_DIO_MASK) {
+        lanes = 2;
+    }
+    *len = DIV_ROUND_UP(clocks * lanes, 8);
+}
+
+static uint8_t esp32c3_spi_read_opcode(ESP32C3SpiState *s)
+{
+    if (s->mem_ctrl & R_SPI_MEM_CTRL_FREAD_QIO_MASK) {
+        return CMD_QIO;
+    }
+    if (s->mem_ctrl & R_SPI_MEM_CTRL_FREAD_DIO_MASK) {
+        return CMD_DIO;
+    }
+    if (s->mem_ctrl & R_SPI_MEM_CTRL_FREAD_QUAD_MASK) {
+        return CMD_QOUT;
+    }
+    if (s->mem_ctrl & R_SPI_MEM_CTRL_FREAD_DUAL_MASK) {
+        return CMD_DOUT;
+    }
+    return s->mem_ctrl & R_SPI_MEM_CTRL_FASTRD_MODE_MASK ?
+           CMD_FAST_READ : CMD_READ;
 }
 
 static void esp32c3_spi_begin_transaction(ESP32C3SpiState *s)
@@ -240,9 +269,12 @@ static void esp32c3_spi_special_command(ESP32C3SpiState *s, uint32_t command)
 
     switch (command >> 19 << 19) {
         case R_SPI_MEM_CMD_FLASH_READ_MASK:
-            t.cmd = CMD_READ;
-            esp32c3_spi_get_addr(s, &t.addr, &t.addr_bytes);
-            t.addr = t.addr >> (32 - t.addr_bytes * 8);
+            t.cmd = esp32c3_spi_read_opcode(s);
+            t.addr_bytes = 3;
+            t.addr = bswap32(s->mem_addr & 0xffffff) >> 8;
+            if (s->mem_user & R_SPI_MEM_USER_USR_DUMMY_MASK) {
+                esp32c3_spi_get_dummy(s, &t.dummy_bytes);
+            }
             t.data = s->data_reg;
             t.rx_bytes = (FIELD_EX32(s->mem_miso_len, SPI_MEM_MISO_DLEN, USR_MISO_DBITLEN) + 1) / 8;
             break;
@@ -270,36 +302,27 @@ static void esp32c3_spi_special_command(ESP32C3SpiState *s, uint32_t command)
         case R_SPI_MEM_CMD_FLASH_WRSR_MASK:
             t.cmd = CMD_WRSR;
             t.data = &s->mem_rd_st;
-            t.tx_bytes = 1;
+            t.tx_bytes = s->mem_ctrl & R_SPI_MEM_CTRL_WRSR_2B_MASK ? 2 : 1;
             break;
 
         case R_SPI_MEM_CMD_FLASH_PP_MASK:
             t.cmd = CMD_PP;
             t.data = s->data_reg;
-            esp32c3_spi_get_addr(s, &t.addr, &t.addr_bytes);
-            /* The number of bytes to process is in the upper-byte of address */
-            t.tx_bytes = (s->mem_addr >> 24) & 0xff;
-            /**
-             * Page program expects a 24-bit page address, if the one written in mem_addr was
-             * 0xNN_33_00_02 (where is "do not care"), after calling `esp32c3_spi_get_addr`, the
-             * address becomes 0x02_00_33_NN. Thus, if we cast it to a byte array, arr[0] would give
-             * `NN`, instead of `33`. We need to adjust the value in address.
-             */
-            t.addr = t.addr >> 8;
+            t.addr_bytes = 3;
+            t.addr = bswap32(s->mem_addr & 0xffffff) >> 8;
+            t.tx_bytes = s->mem_addr >> 24;
             break;
 
         case R_SPI_MEM_CMD_FLASH_SE_MASK:
             t.cmd = CMD_SE;
-            esp32c3_spi_get_addr(s, &t.addr, &t.addr_bytes);
-            /* For the same reasons as explained above, we need to adjust `t.addr`, but here, the shift
-             * to perform is not fixed and depends on the address length */
-            t.addr = t.addr >> (32 - t.addr_bytes * 8);
+            t.addr_bytes = 3;
+            t.addr = bswap32(s->mem_addr & 0xffffff) >> 8;
             break;
 
         case R_SPI_MEM_CMD_FLASH_BE_MASK:
             t.cmd = CMD_BE;
-            esp32c3_spi_get_addr(s, &t.addr, &t.addr_bytes);
-            t.addr = t.addr >> (32 - t.addr_bytes * 8);
+            t.addr_bytes = 3;
+            t.addr = bswap32(s->mem_addr & 0xffffff) >> 8;
             break;
 
         case R_SPI_MEM_CMD_FLASH_CE_MASK:

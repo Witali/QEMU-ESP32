@@ -66,6 +66,7 @@ undocumented; you can get a complete list by running
 .. toctree::
    :maxdepth: 1
 
+   esp32c3-flash
    riscv/microchip-icicle-kit
    riscv/shakti-c
    riscv/sifive_u
