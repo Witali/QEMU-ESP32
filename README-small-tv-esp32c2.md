@@ -114,7 +114,9 @@ previous network behavior. With a loopback HTTP fixture listening on that port,
 DNS maps `api.openweathermap.org` to the virtual subnet's `.100` address and
 SLIRP guestfwd transports its port 80 to `127.0.0.1:<port>`. Restricted DHCP
 responses receive the local DNS option only when they do not already contain
-one. The guest's real DHCP/DNS/TCP/HTTP code handles the entire exchange; no
+one. This local DNS advertisement also applies to the ordinary clock/setup
+profiles, so the first named SNTP server can resolve without relying on an IP
+fallback. The guest's real DHCP/DNS/TCP/HTTP code handles the entire exchange; no
 application instructions or runtime RAM are replaced. Other Internet access
 remains restricted, and the setup/station localhost port blocks remain separate.
 

@@ -15,7 +15,7 @@ static uint16_t ip_checksum(const uint8_t *p, size_t len)
     return ~sum;
 }
 
-/* Advertise the local synthetic DNS in opt-in weather DHCP replies.
+/* Advertise the local synthetic DNS in opt-in clock-service DHCP replies.
  * Restricted SLIRP omits DNS because its normal host resolver is disabled;
  * the guest must learn our isolated replacement through its real DHCP client. */
 size_t esp32c2_clock_prepare_dhcp(Esp32C3WifiState *s, const uint8_t *data,
@@ -23,7 +23,7 @@ size_t esp32c2_clock_prepare_dhcp(Esp32C3WifiState *s, const uint8_t *data,
 {
     size_t ihl, total, udp_size, pos, end;
     const uint8_t *ip, *udp;
-    if (!s->weather_services || s->mode != Esp32_Mode_Station || size < 282 ||
+    if (!s->clock_services || s->mode != Esp32_Mode_Station || size < 282 ||
         lduw_be_p(data + 12) != 0x0800) return 0;
     ip = data + 14;
     ihl = (ip[0] & 15) * 4;
@@ -151,6 +151,8 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         stw_be_p(payload + 6, answer ? 1 : 0);
         stw_be_p(payload + 8, 0); stw_be_p(payload + 10, 0);
         if (answer) {
+            /* Log only the known service class, never a requested hostname or key. */
+            fprintf(stderr, "C2 DNS answer service=%s\n", weather ? "weather" : "ntp");
             uint8_t *a = payload + payload_len;
             stw_be_p(a, 0xc00c); stw_be_p(a + 2, 1); stw_be_p(a + 4, 1);
             stl_be_p(a + 6, 60); stw_be_p(a + 10, 4);

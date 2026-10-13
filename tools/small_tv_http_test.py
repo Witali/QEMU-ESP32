@@ -122,6 +122,7 @@ def configuration_flow(options, folder):
         page = wait_http(urls['station'], expected=b'/setclocktype')
         check('station_web_interface_after_reboot', len(page) > 1000)
         wait_for(lambda: 'C2 NTP reply' in (folder / 'qemu.log').read_text(errors='replace'), 'No station NTP reply')
+        check('named_time_server_dns_reply', 'C2 DNS answer service=ntp' in (folder / 'qemu.log').read_text(errors='replace'))
         check('station_clock_set', vm.read_guest_clock(folder) > 1735689600)
         raw = (folder / 'flash.bin').read_bytes()
         check('credentials_persisted_in_guest_flash', raw[0x3e7004:0x3e7045].split(b'\0')[0] == b'yoRadio-QEMU' and struct.unpack_from('<I', raw, 0x3e7160)[0] == 1)
