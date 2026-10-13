@@ -6,7 +6,8 @@ import hashlib
 import json
 import os
 import re
-from small_tv_network import seed_clock_network
+from small_tv_network import seed_clock_network, seed_setup_network
+from small_tv_web import reserve_web_ports, user_network_options
 from esp_board import compile_profile
 from pathlib import Path
 import shutil
@@ -14,6 +15,7 @@ import socket
 import struct
 import subprocess
 import time
+import threading
 import uuid
 import zlib
 
@@ -97,6 +99,8 @@ def prepare(args, state):
     check_flash(data)
     if args.network == 'clock':
         data = seed_clock_network(data, args.firmware, state, args.yoradio)
+    elif args.network == 'setup':
+        data = seed_setup_network(data, args.firmware, state, args.yoradio)
     flash_sha = digest(data)
     flash = state / 'flash.bin'
     info_path = state / 'prepared.json'
@@ -155,7 +159,23 @@ def ensure_stopped(state):
         else:
             raise RuntimeError('A VM is already using this state directory; stop it first')
 
+_LAUNCH_LOCK = threading.Lock()
+
+
 def launch(args, state):
+    """Serialize listener allocation in-process; retry an auto-port bind race."""
+    with _LAUNCH_LOCK:
+        for attempt in range(8):
+            try:
+                return _launch(args, state)
+            except RuntimeError as error:
+                if (getattr(args, 'http_base_port', 0) != 0 or
+                        'host forwarding rule' not in str(error) or attempt == 7):
+                    raise
+                time.sleep(.05)
+
+
+def _launch(args, state):
     info = prepare(args, state)
     help_text = subprocess.check_output([args.qemu, '-machine', 'help'], text=True)
     if 'esp32c2 ' not in help_text:
@@ -175,20 +195,30 @@ def launch(args, state):
                f'tcp:127.0.0.1:{port},server=on,wait=off']
     if hardware:
         command += hardware['arguments']
-    if args.network == 'clock':
+    web_endpoints, reservations = reserve_web_ports(args.network, getattr(args, 'http_base_port', 0))
+    if args.network in ('clock', 'setup'):
         command += ['-global', 'esp32c3-wifi.clock-services=on',
-                    '-nic', 'user,model=esp32c3-wifi,restrict=on']
+                    '-nic', user_network_options(args.network, web_endpoints)]
+        if args.network == 'setup':
+            command += ['-global', 'esp32c3-wifi.softap-client-ssid=Small_TV']
     else:
         command += ['-nic', 'none']
     if not args.persistent: command.append('-snapshot')
     if args.gdb_port:
         command += ['-gdb', f'tcp:127.0.0.1:{args.gdb_port}']
     if args.paused: command.append('-S')
+    # Release the preflight sockets immediately before QEMU binds its own
+    # listeners. A competing bind fails startup visibly, never changes an
+    # explicitly requested port or redirects a browser to another VM.
+    for reservation in reservations:
+        reservation.close()
     with (state / 'qemu.log').open('wb') as log:
         process = subprocess.Popen(command, stdout=log, stderr=log,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     session = {'name': name, 'pid': process.pid, 'qmp_port': port, 'firmware': args.firmware,
                'hardware_profile': hardware, 'network': args.network, 'persistent': args.persistent, 'qemu': args.qemu, 'started_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
+    session['web_endpoints'] = web_endpoints
+    session['web_urls'] = {row['name']: row['url'] for row in web_endpoints}
     save_json(state / 'session.json', session)
     for attempt in range(50):
         if process.poll() is not None:
@@ -349,7 +379,8 @@ def main():
     parser.add_argument('--state', required=True)
     parser.add_argument('--display', choices=['none', 'sdl'], default='sdl')
     parser.add_argument('--hardware-profile', default='')
-    parser.add_argument('--network', choices=['clock','offline'], default='clock')
+    parser.add_argument('--network', choices=['clock','setup','offline'], default='clock')
+    parser.add_argument('--http-base-port', type=int, default=0, help='First consecutive localhost HTTP port; 0 auto, -1 disable')
     parser.add_argument('--persistent', action='store_true')
     parser.add_argument('--paused', action='store_true')
     parser.add_argument('--gdb-port', type=int, default=0)

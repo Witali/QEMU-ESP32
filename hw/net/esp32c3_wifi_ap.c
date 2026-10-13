@@ -174,14 +174,23 @@ static void Esp32_WLAN_beacon_timer(void *opaque)
     struct mac80211_frame *frame;
     Esp32C3WifiState *s = (Esp32C3WifiState *)opaque;
     // only send a beacon if we are an access point
-    if((ENABLE_BEACON)&&(s->mode == Esp32_Mode_Station)){
-      if(s->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED) {
+    if (ENABLE_BEACON && (s->mode == Esp32_Mode_Station || s->softap_client_ssid)) {
+      if(s->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED ||
+         (s->softap_client_ssid && s->mode == Esp32_Mode_SoftAP)) {
         for(int i=0;i<nb_aps;i++){
           int ap = (i + s->beacon_ap)%nb_aps;
           if (access_points[ap].channel==esp32c3_wifi_channel(s)) {
-              memcpy(s->ap_macaddr,access_points[ap].mac_address,6);
               frame = Esp32_WLAN_create_beacon_frame(&access_points[ap]);
-              Esp32_WLAN_init_ap_frame(s, frame);
+              if (s->mode == Esp32_Mode_SoftAP) {
+                  /* A setup AP may scan other networks while its client stays
+                   * associated. Advertise their own BSSID without changing it. */
+                  memcpy(frame->source_address, access_points[ap].mac_address, 6);
+                  memcpy(frame->bssid_address, access_points[ap].mac_address, 6);
+                  frame->sequence_control.sequence_number = s->inject_sequence_number++;
+              } else {
+                  memcpy(s->ap_macaddr,access_points[ap].mac_address,6);
+                  Esp32_WLAN_init_ap_frame(s, frame);
+              }
               Esp32_WLAN_insert_frame(s, frame);
               break;
           }
@@ -734,6 +743,26 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
         ap_info = &station_ap;
     }
 
+    /* Active scan on the guest's STA interface may run while its AP client
+     * remains associated. Answer as each external AP, without replacing the
+     * setup client's MAC/state or waiting for a 500-ms beacon interval. */
+    if (s->softap_client_ssid && s->mode == Esp32_Mode_SoftAP &&
+        frame->frame_control.type == IEEE80211_TYPE_MGT &&
+        frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ) {
+        for (int i = 0; i < nb_aps; ++i) {
+            if (access_points[i].channel != esp32c3_wifi_channel(s)) continue;
+            reply = Esp32_WLAN_create_probe_response(&access_points[i]);
+            memcpy(reply->destination_address, frame->source_address, 6);
+            memcpy(reply->source_address, access_points[i].mac_address, 6);
+            memcpy(reply->bssid_address, access_points[i].mac_address, 6);
+            reply->signal_strength = access_points[i].sigstrength;
+            reply->sequence_control.sequence_number = s->inject_sequence_number++;
+            Esp32_WLAN_insert_frame(s, reply);
+        }
+        Esp32_WLAN_frame_delivered(s);
+        return;
+    }
+
     esp32c3_wifi_set_packet_status(s, ESP32C3_RADIO_PHYA_ACK);
     if(frame->frame_control.type == IEEE80211_TYPE_MGT) {
         switch(frame->frame_control.sub_type) {
@@ -744,6 +773,14 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                     dummy_ap.ssid=ssid;
                     dummy_ap.channel = esp32c3_wifi_channel(s);
                     dummy_ap.sigstrength= -23;
+                    /* Pin one virtual client MAC through probe/auth/association.
+                     * Otherwise the generic station-AP reply below replaces it,
+                     * and association arrives from a different (often zero) MAC. */
+                    if (s->softap_client_ssid &&
+                        !strcmp(ssid, s->softap_client_ssid)) {
+                        memcpy(s->ap_macaddr, (uint8_t[]){0x52,0x54,0,0x43,0,2}, 6);
+                        ap_info = NULL;
+                    }
                     memcpy(dummy_ap.mac_address,s->ap_macaddr,6) ;
                     memcpy(s->softap_macaddr,frame->bssid_address,6);
                     s->mode = Esp32_Mode_SoftAP;

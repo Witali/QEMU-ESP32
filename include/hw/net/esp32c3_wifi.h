@@ -74,9 +74,11 @@ struct Esp32C3WifiState {
     uint32_t tx_done;
     uint32_t tx_error;
     uint32_t rx_desc;
+    uint32_t rx_last_desc;
 
     bool c2_layout;
     bool clock_services;
+    char *softap_client_ssid;
     NICConf conf;
     NICState *nic;
     Esp32C3RadioState *radio;

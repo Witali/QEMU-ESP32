@@ -145,7 +145,13 @@ static mac80211_frame *Esp32_WLAN_create_dhcp_frame(Esp32C3WifiState *s, int cmd
         {.htype=1,.hlen=6,.xid=0x1d3d00,.chaddr={0,0,0,0,0,0},
         .magic_cookie=0x63538263}
     };
-    memcpy(req.dhcp.chaddr, s->macaddr, 6);
+    if (s->softap_client_ssid && s->mode == Esp32_Mode_SoftAP) {
+        /* The virtual client, rather than the guest AP, owns this DHCP request. */
+        req.dhcp.opcode = 1;
+        memcpy(req.dhcp.chaddr, s->ap_macaddr, 6);
+    } else {
+        memcpy(req.dhcp.chaddr, s->macaddr, 6);
+    }
     int len=sizeof(req)+cmd_size;
     req.ipheader.len_h=len>>8;
     req.ipheader.len_l=len&0xff;

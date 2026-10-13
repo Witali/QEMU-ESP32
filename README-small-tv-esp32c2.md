@@ -1,16 +1,16 @@
 # Small TV ESP32-C2 QEMU machine
 
 The experimental `esp32c2` machine runs the factory Small TV application and
-our reconstructed application with a 240�240 ST7789 display. The default `clock`
+our reconstructed application with a 240×240 ST7789 display. The default `clock`
 network profile emulates an open **yoRadio-QEMU** access point, Wi-Fi packet DMA,
 association, DHCP, ARP, DNS and UDP NTP. Both applications receive time from a
 virtual server using the computer's UTC clock. Guest instructions are unchanged;
 only settings in a disposable flash copy are replaced for the virtual network.
 
 The profile is isolated with SLIRP `restrict=on`. DNS maps the three firmware
-time-server names to `10.0.2.2`; other names receive NXDOMAIN. It provides no
+time-server names to the current virtual subnet's `.2` service address; other names receive NXDOMAIN. It provides no
 Internet weather data. The original firmware may display weather lookup errors;
-the reconstruction uses an empty weather key. `-Network offline` retains the
+both seeded fixtures use the synthetic `disabled` key. `-Network offline` retains the
 earlier boot/display-only mode, with the factory setup screen and unsynchronized
 reconstructed clock. This is a packet-level Wi-Fi model, not RF simulation.
 
@@ -31,8 +31,7 @@ The executable is installed under `bin/`. C3 remains available in that binary.
 The launcher defaults to the sibling `yoRadio` repository. It locates the genuine
 `esp32c2_rev200_rom.elf` in that repository's ESP-IDF `esp-rom-elfs` package.
 For another layout, pass `-YoRadioRepository`, `-RomElf`, `-PythonExecutable`
-and/or `-QemuExecutable`. The VM controller uses Python's standard library; the `clock` profile also uses
-the pinned ESP-IDF Python environment's NVS generator for reconstructed settings.
+and/or `-QemuExecutable`. The VM controller and fixture generator use Python's standard library.
 Obtain the ROM ELF through ESP-IDF; this repository does not redistribute it.
 
 Each network profile and variant has its own state directory under `.cache/small-tv-c2/`. Preparation
@@ -40,9 +39,9 @@ validates source hashes and C2 image headers, converts the real ROM ELF's physic
 load segments into a ROM binary, and creates a 4 MiB working flash image.
 The `offline` profile copies factory flash byte for byte. The `clock` profile
 erases the working NVS region `0x9000..0xefff`, removing hardware calibration and
-stored owner credentials. It seeds the original raw settings sector at
-`0x3e7000`, or the reconstruction's `small_tv/configuration` NVS blob, with an
-open synthetic SSID and no owner weather key. Application/bootloader instructions
+stored owner credentials. Both applications import a synthetic raw settings sector at `0x3e7000`:
+`clock` starts with saved open-network credentials, while `setup` starts with
+no SSID and setup mode. No owner weather key is copied. Application/bootloader instructions
 and display assets remain unchanged. There are no guest PC/function patches or
 direct time writes: SNTP receives regular UDP packets and sets the RTC offset.
 
@@ -50,6 +49,62 @@ Default `-snapshot` execution discards guest flash writes when QEMU exits.
 `-Persistent` instead retains writes in the working copy, including NVS settings.
 It never writes the source dump or firmware archive. A persistent copy from
 another firmware build or network profile requires a new `-StateDirectory`.
+
+## Localhost web access and initial Wi-Fi setup
+
+HTTP connections are forwarded by SLIRP to the real guest TCP/IP stack and
+firmware HTTP handlers. No Python replacement website or host-side guest IP
+assignment is needed. Listeners bind only to `127.0.0.1`; the network remains
+restricted. `session.json`, launch output and `-Action status` list `web_urls`
+and the complete `web_endpoints` mapping.
+
+```powershell
+.\run-small-tv-esp32c2.ps1 -Network setup -Firmware reconstructed `
+    -HttpBasePort 18080 -Persistent -Display none
+```
+
+| Host URL | Guest service |
+|---|---|
+| `http://127.0.0.1:18080` | Initial setup AP (`192.168.43.1:80`) |
+| `http://127.0.0.1:18081` | Station after configuration (`192.168.43.15:80`) |
+
+Open the setup URL, scan/select **yoRadio-QEMU**, leave its password empty,
+and save. The firmware writes its own settings and reboots. Open the station
+URL after it receives DHCP. `-Persistent` keeps these preferences for a later
+launch. Repeat control commands with `-Network setup` or the same explicit
+`-StateDirectory`. Both ports remain distinct; their guest IPs are implementation
+details for browser users.
+
+`-HttpBasePort 0` (default) chooses the first free consecutive block at/above
+18080. Multiple VMs receive separate blocks; an explicitly requested busy block
+fails instead of being silently redirected. `-HttpBasePort -1` disables HTTP
+forwarding. The usual `-Network clock` profile exposes its station at one port
+(`10.0.2.15:80`); `offline` has no network listener.
+
+The setup backend uses `192.168.43.0/24` so the guest AP and its virtual client
+share a subnet, and it retains that subnet through AP -> STA reboot. NTP/DNS
+services follow this subnet. The opt-in `esp32c3-wifi.softap-client-ssid=Small_TV`
+property makes the virtual client use a consistent MAC through association and
+DHCP, and allows the guest's idle STA interface to scan other virtual APs.
+Default C3 behavior is unchanged. C2 RX LAST tracks the completed DMA descriptor,
+separately from NEXT, including when the chain needs replenishment during scan.
+
+```powershell
+& C:\Work\yoRadio\.idf\python-3.12.10\tools\python.exe `
+    .\tools\test_small_tv_network.py
+& C:\Work\yoRadio\.idf\python-3.12.10\tools\python.exe `
+    .\tools\small_tv_http_test.py --output C:\Work\yoRadio\.build\small-tv-http-tests
+```
+
+Integration checks cover real native scan, setup HTML, configure POST, AP -> STA,
+DHCP/SNTP, settings persistence after relaunch/reset and two simultaneous station
+VMs with isolated HTTP settings. The original's setup flow uses manual SSID entry:
+its `/scan` dereferences `malloc(0)` when no results exist (`0x4200f484`), so that
+vendor bug is explicitly excluded, not marked as a passing scan. The reconstructed
+handler safely returns `[]` for zero results. Factory JSON requests use its own
+browser's compact JSON.stringify format; its naive `/configure` parser does not
+recognize spaces after `ssid`/`password` colons. The native JSON parser handles them.
+This is an open synthetic network test, not RF/WPA encryption or browser-JS coverage.
 
 ## Control and diagnostics
 
@@ -99,13 +154,13 @@ matching firmware GPIO assignments.
 
 | Component | Model |
 |---|---|
-| CPU | One RV32IMC core, 120 MHz cycle counter; C2 fixed PMPADDR3–15 |
+| CPU | One RV32IMC core, 120 MHz cycle counter; C2 fixed PMPADDR3â€“15 |
 | ROM / SRAM | 576 KiB genuine ROM; 16 KiB cache SRAM + 256 KiB SRAM, with correct IRAM/DRAM aliases |
 | Flash / MMU | 4 MiB Small TV flash; 64 MMU entries, C2 invalid bit, selectable 16/32/64 KiB pages; 64 KiB verified by both images |
 | Interrupts | 43 C2 sources and the C2 enable/priority/threshold register layout |
 | Timers | SYSTIMER 10.4 MHz, APB 40 MHz, XTAL 26 MHz; RTC scratch/time and reset registers |
 | DMA / SPI | One GDMA channel pair; SPI1 flash access; SPI2 FIFO and DMA data transfers |
-| LCD | ST7789, RGB565, 240×240; D/C GPIO5, Reset GPIO1; SCK4/MOSI6 described by the direct SSI bus |
+| LCD | ST7789, RGB565, 240Ã—240; D/C GPIO5, Reset GPIO1; SCK4/MOSI6 described by the direct SSI bus |
 | Backlight | GPIO18's active-low LEDC channel 0 duty represented by average screen brightness |
 | eFuse | Synthetic C2 v2.0 identity and local MAC `02:00:00:00:00:02`; no owner's device identity copied |
 | Wi-Fi | C2 MAC/DMA at `0x60047000`; shared 802.11 AP frontend, isolated DHCP/ARP/DNS/NTP |

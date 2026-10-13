@@ -19,6 +19,7 @@
 #include "exec/address-spaces.h"
 #include "qemu/log.h"
 #include "qemu/guest-random.h"
+#include "qapi/error.h"
 
 /* C2 ROM uses RX 0x64/0x68 and TX PLCP0 0xce8; C3 uses 0x84/0x88
  * and 0xd08. Keep the shared 802.11 and DMA implementation. */
@@ -179,6 +180,22 @@ void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
         metadata.bssidmatch1 = 1;
     }
 
+    if (s->c2_layout && s->softap_client_ssid &&
+        s->mode == Esp32_Mode_SoftAP &&
+        frame->frame_control.type == IEEE80211_TYPE_MGT &&
+        (frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_BEACON ||
+         frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_PROBE_RESP) &&
+        memcmp(frame->bssid_address, s->softap_macaddr, 6)) {
+        /* External scan results belong to the unassociated STA interface,
+         * never to the guest AP's peer table. SDK initialization order may
+         * place STA in either hardware MAC slot. Its BSSID filter is wildcard
+         * during scan; the old exact-MAC model discarded every result. */
+        bool station_first = memcmp((uint8_t *)s->regs + 0x30,
+                                    s->softap_macaddr, 6) != 0;
+        metadata.damatch0 = metadata.bssidmatch0 = station_first;
+        metadata.damatch1 = metadata.bssidmatch1 = !station_first;
+    }
+
     packet = g_malloc(packet_length);
     memcpy(packet, &metadata, sizeof(metadata));
     memcpy(packet + sizeof(metadata), frame, length);
@@ -194,6 +211,9 @@ void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
     desc.eof = 1;
     address_space_write(&address_space_memory, s->rx_desc,
                         MEMTXATTRS_UNSPECIFIED, &desc, sizeof(uint32_t));
+    /* C2's wDev_AppendRxBlocks reads the completed tail when NEXT becomes
+     * zero. Returning NEXT as LAST fabricates 0x3fc00000 and faults on +8. */
+    s->rx_last_desc = s->rx_desc;
     s->rx_desc = desc.next;
     s->interrupt_status |= ESP32C3_WIFI_INT_RX_DONE;
     esp32c3_wifi_update_irq(s);
@@ -221,7 +241,7 @@ static uint64_t esp32c3_wifi_read(void *opaque, hwaddr addr,
     case ESP32C3_WIFI_RX_NEXT_DESC:
         return s->rx_desc;
     case ESP32C3_WIFI_RX_LAST_DESC:
-        return s->rx_desc;
+        return s->c2_layout ? s->rx_last_desc : s->rx_desc;
     default:
         return s->regs[physical_addr / sizeof(uint32_t)];
     }
@@ -283,6 +303,7 @@ static void esp32c3_wifi_reset(DeviceState *dev)
     s->tx_done = 0;
     s->tx_error = 0;
     s->rx_desc = 0;
+    s->rx_last_desc = 0;
     Esp32_WLAN_reset_ap(s);
     esp32c3_wifi_update_irq(s);
 }
@@ -291,6 +312,11 @@ static void esp32c3_wifi_realize(DeviceState *dev, Error **errp)
 {
     Esp32C3WifiState *s = ESP32C3_WIFI(dev);
 
+    if (s->softap_client_ssid && (!s->softap_client_ssid[0] ||
+                                strlen(s->softap_client_ssid) > 32)) {
+        error_setg(errp, "softap-client-ssid must contain 1..32 bytes");
+        return;
+    }
     Esp32_WLAN_setup_ap(dev, s);
 }
 
@@ -309,6 +335,7 @@ static void esp32c3_wifi_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     static const Property properties[] = {
         DEFINE_PROP_BOOL("clock-services", Esp32C3WifiState, clock_services, false),
+        DEFINE_PROP_STRING("softap-client-ssid", Esp32C3WifiState, softap_client_ssid),
         DEFINE_PROP_BOOL("c2-layout", Esp32C3WifiState, c2_layout, false),
         DEFINE_NIC_PROPERTIES(Esp32C3WifiState, conf),
         DEFINE_PROP_UINT64("bandwidth-bps", Esp32C3WifiState,

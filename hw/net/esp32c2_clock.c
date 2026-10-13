@@ -25,13 +25,17 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
     uint16_t port;
     struct mac80211_frame *frame;
 
-    if (s->clock_services && size >= 42 && lduw_be_p(data + 12) == 0x0806 &&
+    /* Do not impersonate a client of a guest AP: its real DHCP/ARP stack owns
+     * that subnet. Station service addresses follow the configured SLIRP LAN. */
+    if (!s->clock_services || s->mode != Esp32_Mode_Station) return false;
+
+    if (size >= 42 && lduw_be_p(data + 12) == 0x0806 &&
         lduw_be_p(data + 14) == 1 && lduw_be_p(data + 16) == 0x0800 &&
         data[18] == 6 && data[19] == 4 && lduw_be_p(data + 20) == 1 &&
-        !memcmp(data + 38, (uint8_t[]){10, 0, 2}, 3) &&
+        !memcmp(data + 38, data + 28, 3) &&
         (data[41] == 2 || data[41] == 3)) {
         memcpy(reply, data + 6, 6);
-        memcpy(reply + 6, (uint8_t[]){0x52,0x55,10,0,2,data[41]}, 6);
+        reply[6] = 0x52; reply[7] = 0x55; memcpy(reply + 8, data + 38, 4);
         memcpy(reply + 12, data + 12, 10); stw_be_p(reply + 20, 2);
         memcpy(reply + 22, reply + 6, 6); memcpy(reply + 28, data + 38, 4);
         memcpy(reply + 32, data + 22, 10);
@@ -102,7 +106,7 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
             uint8_t *a = payload + payload_len;
             stw_be_p(a, 0xc00c); stw_be_p(a + 2, 1); stw_be_p(a + 4, 1);
             stl_be_p(a + 6, 60); stw_be_p(a + 10, 4);
-            memcpy(a + 12, (uint8_t[]){10, 0, 2, 2}, 4);
+            memcpy(a + 12, ip + 12, 3); a[15] = 2;
             payload_len += 16;
         }
     } else return false;
