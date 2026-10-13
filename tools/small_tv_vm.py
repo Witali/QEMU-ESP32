@@ -176,6 +176,8 @@ def launch(args, state):
 
 
 def _launch(args, state):
+    # Validate the optional loopback fixture before creating any VM state.
+    user_network_options(args.network, [], getattr(args, 'weather_port', 0))
     info = prepare(args, state)
     help_text = subprocess.check_output([args.qemu, '-machine', 'help'], text=True)
     if 'esp32c2 ' not in help_text:
@@ -198,7 +200,9 @@ def _launch(args, state):
     web_endpoints, reservations = reserve_web_ports(args.network, getattr(args, 'http_base_port', 0))
     if args.network in ('clock', 'setup'):
         command += ['-global', 'esp32c3-wifi.clock-services=on',
-                    '-nic', user_network_options(args.network, web_endpoints)]
+                    '-nic', user_network_options(args.network, web_endpoints, getattr(args, 'weather_port', 0))]
+        if getattr(args, 'weather_port', 0):
+            command += ['-global', 'esp32c3-wifi.weather-services=on']
         if args.network == 'setup':
             command += ['-global', 'esp32c3-wifi.softap-client-ssid=Small_TV']
     else:
@@ -381,6 +385,7 @@ def main():
     parser.add_argument('--hardware-profile', default='')
     parser.add_argument('--network', choices=['clock','setup','offline'], default='clock')
     parser.add_argument('--http-base-port', type=int, default=0, help='First consecutive localhost HTTP port; 0 auto, -1 disable')
+    parser.add_argument('--weather-port', type=int, default=0, help='Opt-in loopback HTTP weather fixture port; 0 disables')
     parser.add_argument('--persistent', action='store_true')
     parser.add_argument('--paused', action='store_true')
     parser.add_argument('--gdb-port', type=int, default=0)

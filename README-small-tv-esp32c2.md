@@ -106,6 +106,33 @@ browser's compact JSON.stringify format; its naive `/configure` parser does not
 recognize spaces after `ssid`/`password` colons. The native JSON parser handles them.
 This is an open synthetic network test, not RF/WPA encryption or browser-JS coverage.
 
+## Optional local weather fixture
+
+`-WeatherPort <port>` enables only an isolated synthetic weather service. Its
+default is zero (disabled), so existing clock/offline and C3 profiles keep their
+previous network behavior. With a loopback HTTP fixture listening on that port,
+DNS maps `api.openweathermap.org` to the virtual subnet's `.100` address and
+SLIRP guestfwd transports its port 80 to `127.0.0.1:<port>`. Restricted DHCP
+responses receive the local DNS option only when they do not already contain
+one. The guest's real DHCP/DNS/TCP/HTTP code handles the entire exchange; no
+application instructions or runtime RAM are replaced. Other Internet access
+remains restricted, and the setup/station localhost port blocks remain separate.
+
+The differential fixture/test is maintained with the firmware:
+
+```powershell
+& C:\Work\yoRadio\.idf\tools-v6.1\python_env\idf6.1_py3.12_env\Scripts\python.exe `
+    C:\Work\yoRadio\Small_TV\src\tests\weather_qemu.py `
+    --output C:\Work\yoRadio\.build\small-tv-weather-tests
+```
+
+It starts/stops the fixture and both VMs, verifies failure/retry and positive/
+negative Kelvin payloads, reads only identified synthetic weather globals, and
+requires equal nonblank LCD weather regions. Native cache offsets come from
+the current ELF's DWARF. The factory's unchecked HTTP 503 JSON parser is recorded
+as a vendor defect; the native program rejects it. This does not test access to
+the real Internet weather service, physical RF or the complete application.
+
 ## Control and diagnostics
 
 ```powershell

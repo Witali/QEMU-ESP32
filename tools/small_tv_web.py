@@ -50,11 +50,18 @@ def reserve_web_ports(network, base=0):
     raise ValueError('No free consecutive HTTP loopback ports')
 
 
-def user_network_options(network, routes):
+def user_network_options(network, routes, weather_port=0):
     """Build actual SLIRP forwards; no host-side replacement HTTP server is used."""
+    if not isinstance(weather_port, int) or not 0 <= weather_port <= 65535:
+        raise ValueError('Weather fixture port must be 0..65535')
+    if weather_port and network not in ('clock', 'setup'):
+        raise ValueError('Weather fixture needs a station-capable network')
     options = 'user,model=esp32c3-wifi,restrict=on'
     if network == 'setup':
         options += ',net=192.168.43.0/24,host=192.168.43.2,dns=192.168.43.3,dhcpstart=192.168.43.15'
     for route in routes:
         options += f",hostfwd=tcp:127.0.0.1:{route['host_port']}-{route['guest_address']}:80"
+    if weather_port:
+        address = '192.168.43.100' if network == 'setup' else '10.0.2.100'
+        options += f',guestfwd=tcp:{address}:80-tcp:127.0.0.1:{weather_port}'
     return options

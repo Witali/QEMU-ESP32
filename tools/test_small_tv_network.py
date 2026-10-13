@@ -46,6 +46,16 @@ class NetworkTests(unittest.TestCase):
         finally:
             for sock in held: sock.close()
 
+    def test_opt_in_loopback_weather(self):
+        self.assertNotIn('guestfwd', user_network_options('clock', []))
+        for network, address in [('clock', '10.0.2.100'), ('setup', '192.168.43.100')]:
+            options = user_network_options(network, [], 19000)
+            self.assertIn(f'guestfwd=tcp:{address}:80-tcp:127.0.0.1:19000', options)
+            self.assertIn('restrict=on', options)
+        for port in (-1, 65536, '19000'):
+            with self.assertRaises(ValueError): user_network_options('clock', [], port)
+        with self.assertRaises(ValueError): user_network_options('offline', [], 19000)
+
     def test_private_state_cleared_and_payload_preserved(self):
         source = bytearray(b'\xa5' * 0x400000)
         struct.pack_into('<5I', source, 0x3e71a8, 100, 200, 300, 400, 500)

@@ -13,6 +13,7 @@ param(
     [ValidateSet('sdl','none')][string]$Display = 'sdl',
     [ValidateSet('clock','setup','offline')][string]$Network = 'clock',
     [ValidateRange(-1,65535)][int]$HttpBasePort = 0,
+    [ValidateRange(0,65535)][int]$WeatherPort = 0,
     [ValidateRange(5,3600)][int]$TestSeconds = 30,
     [ValidateRange(0,65535)][int]$GdbPort = 0,
     [string]$ScreenshotPath = '',
@@ -57,7 +58,7 @@ $arguments = @(
     '--qemu', ([IO.Path]::GetFullPath($QemuExecutable)),
     '--rom-elf', ([IO.Path]::GetFullPath($RomElf)),
     '--state', ([IO.Path]::GetFullPath($StateDirectory)),
-    '--network', $Network, '--http-base-port', "$HttpBasePort", '--display', $Display, '--seconds', "$TestSeconds", '--gdb-port', "$GdbPort"
+    '--network', $Network, '--http-base-port', "$HttpBasePort", '--weather-port', "$WeatherPort", '--display', $Display, '--seconds', "$TestSeconds", '--gdb-port', "$GdbPort"
 )
 if ($HardwareProfile) { $arguments += @('--hardware-profile', ([IO.Path]::GetFullPath($HardwareProfile))) }
 if ($Persistent) { $arguments += '--persistent' }

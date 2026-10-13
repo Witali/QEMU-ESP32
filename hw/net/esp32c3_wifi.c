@@ -335,6 +335,7 @@ static void esp32c3_wifi_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     static const Property properties[] = {
         DEFINE_PROP_BOOL("clock-services", Esp32C3WifiState, clock_services, false),
+        DEFINE_PROP_BOOL("weather-services", Esp32C3WifiState, weather_services, false),
         DEFINE_PROP_STRING("softap-client-ssid", Esp32C3WifiState, softap_client_ssid),
         DEFINE_PROP_BOOL("c2-layout", Esp32C3WifiState, c2_layout, false),
         DEFINE_NIC_PROPERTIES(Esp32C3WifiState, conf),

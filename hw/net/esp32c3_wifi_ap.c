@@ -485,6 +485,13 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
      * access points turns it into a 802.11 frame and
      * forwards it to the wireless device
      */
+    uint8_t local_dhcp[1518];
+    size_t local_size = esp32c2_clock_prepare_dhcp(s, buf, size,
+                                                local_dhcp, sizeof(local_dhcp));
+    if (local_size) {
+        buf = local_dhcp;
+        size = local_size;
+    }
     frame = Esp32_WLAN_create_data_packet(s, buf, size);
     if (frame) {
         if(s->mode == Esp32_Mode_Station){

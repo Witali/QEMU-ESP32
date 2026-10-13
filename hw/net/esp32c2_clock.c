@@ -15,6 +15,50 @@ static uint16_t ip_checksum(const uint8_t *p, size_t len)
     return ~sum;
 }
 
+/* Advertise the local synthetic DNS in opt-in weather DHCP replies.
+ * Restricted SLIRP omits DNS because its normal host resolver is disabled;
+ * the guest must learn our isolated replacement through its real DHCP client. */
+size_t esp32c2_clock_prepare_dhcp(Esp32C3WifiState *s, const uint8_t *data,
+                                size_t size, uint8_t *out, size_t capacity)
+{
+    size_t ihl, total, udp_size, pos, end;
+    const uint8_t *ip, *udp;
+    if (!s->weather_services || s->mode != Esp32_Mode_Station || size < 282 ||
+        lduw_be_p(data + 12) != 0x0800) return 0;
+    ip = data + 14;
+    ihl = (ip[0] & 15) * 4;
+    total = lduw_be_p(ip + 2);
+    if (ip[0] >> 4 != 4 || ip[9] != 17 || ihl < 20 ||
+        total < ihl + 248 || total > size - 14 ||
+        (lduw_be_p(ip + 6) & 0x3fff)) return 0;
+    udp = ip + ihl;
+    udp_size = lduw_be_p(udp + 4);
+    if (lduw_be_p(udp) != 67 || lduw_be_p(udp + 2) != 68 ||
+        udp_size != total - ihl || udp[8] != 2 ||
+        ldl_be_p(udp + 244) != 0x63825363) return 0;
+    pos = 14 + ihl + 248;
+    end = 14 + total;
+    while (pos < end) {
+        uint8_t code = data[pos];
+        if (code == 255) break;
+        if (!code) { pos++; continue; }
+        if (pos + 2 > end || data[pos + 1] > end - pos - 2) return 0;
+        if (code == 6) return 0; /* Keep an explicitly supplied DNS option. */
+        pos += 2 + data[pos + 1];
+    }
+    if (pos == end || size + 6 > capacity) return 0;
+    memcpy(out, data, pos);
+    out[pos] = 6; out[pos + 1] = 4;
+    memcpy(out + pos + 2, ip + 12, 3); out[pos + 5] = 3;
+    memcpy(out + pos + 6, data + pos, size - pos);
+    stw_be_p(out + 14 + 2, total + 6);
+    stw_be_p(out + 14 + 10, 0);
+    stw_be_p(out + 14 + 10, ip_checksum(out + 14, ihl));
+    stw_be_p(out + 14 + ihl + 4, udp_size + 6);
+    stw_be_p(out + 14 + ihl + 6, 0); /* Valid IPv4 UDP checksum omission. */
+    return size + 6;
+}
+
 /* Return true only for a handled DNS/NTP request. Ordinary packets still
  * pass through the existing virtual AP and SLIRP backend. */
 bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size)
@@ -93,7 +137,11 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         name[used] = 0;
         if (pos + 5 > request_len || pos + 5 > sizeof(payload) - 16) return true;
         pos++;
-        bool known = !g_ascii_strcasecmp(name, "ntp1.aliyun.com") ||
+        /* Opt-in DNS only: SLIRP guestfwd carries real guest TCP/HTTP to
+         * a loopback fixture. The usual isolated clock profile is unchanged. */
+        bool weather = s->weather_services &&
+            !g_ascii_strcasecmp(name, "api.openweathermap.org");
+        bool known = weather || !g_ascii_strcasecmp(name, "ntp1.aliyun.com") ||
             !g_ascii_strcasecmp(name, "cn.pool.ntp.org") ||
             !g_ascii_strcasecmp(name, "pool.ntp.org");
         bool answer = known && lduw_be_p(request + pos) == 1 && lduw_be_p(request + pos + 2) == 1;
@@ -106,7 +154,7 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
             uint8_t *a = payload + payload_len;
             stw_be_p(a, 0xc00c); stw_be_p(a + 2, 1); stw_be_p(a + 4, 1);
             stl_be_p(a + 6, 60); stw_be_p(a + 10, 4);
-            memcpy(a + 12, ip + 12, 3); a[15] = 2;
+            memcpy(a + 12, ip + 12, 3); a[15] = weather ? 100 : 2;
             payload_len += 16;
         }
     } else return false;

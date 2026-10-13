@@ -78,6 +78,7 @@ struct Esp32C3WifiState {
 
     bool c2_layout;
     bool clock_services;
+    bool weather_services;
     char *softap_client_ssid;
     NICConf conf;
     NICState *nic;
@@ -129,3 +130,6 @@ void Esp32_sendFrame(Esp32C3WifiState *s, struct mac80211_frame *frame,
 void Esp32_WLAN_frame_delivered(Esp32C3WifiState *s);
 
 bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size);
+
+size_t esp32c2_clock_prepare_dhcp(Esp32C3WifiState *s, const uint8_t *data,
+                                size_t size, uint8_t *out, size_t capacity);
