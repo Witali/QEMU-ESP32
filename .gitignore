@@ -26,3 +26,5 @@ GTAGS
 /share/
 
 /build-esp32c2/
+/build-riscv32/
+/.tmp/
