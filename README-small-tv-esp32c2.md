@@ -106,34 +106,44 @@ browser's compact JSON.stringify format; its naive `/configure` parser does not
 recognize spaces after `ssid`/`password` colons. The native JSON parser handles them.
 This is an open synthetic network test, not RF/WPA encryption or browser-JS coverage.
 
-## Optional local weather fixture
+## Optional profile service URLs
 
-`-WeatherPort <port>` enables only an isolated synthetic weather service. Its
-default is zero (disabled), so existing clock/offline and C3 profiles keep their
-previous network behavior. With a loopback HTTP fixture listening on that port,
-DNS maps `api.openweathermap.org` to the virtual subnet's `.100` address and
-SLIRP guestfwd transports its port 80 to `127.0.0.1:<port>`. Restricted DHCP
-responses receive the local DNS option only when they do not already contain
-one. This local DNS advertisement also applies to the ordinary clock/setup
-profiles, so the first named SNTP server can resolve without relying on an IP
-fallback. The guest's real DHCP/DNS/TCP/HTTP code handles the entire exchange; no
-application instructions or runtime RAM are replaced. Other Internet access
-remains restricted, and the setup/station localhost port blocks remain separate.
+Device-specific endpoints are listed in `network.urls` in the selected device
+profile. The default `small-tv` profile is `configs/boards/small-tv-c2.json`;
+it also supplies NTP hostnames and setup/station SSIDs. The emulator itself has
+no provider-specific DNS defaults. See the [profile format and migration guide](configs/boards/README.md).
 
-The differential fixture/test is maintained with the firmware:
+`-ServicePort <port>` enables isolated forwarding to a loopback fixture. The
+zero default disables HTTP service aliases and forwarding. For example:
 
 ```powershell
-& C:\Work\yoRadio\.idf\tools-v6.1\python_env\idf6.1_py3.12_env\Scripts\python.exe `
-    C:\Work\yoRadio\Small_TV\src\tests\weather_qemu.py `
-    --output C:\Work\yoRadio\.build\small-tv-weather-tests
+.\run-small-tv-esp32c2.ps1 -ServicePort 19000 -Display none
+.\run-small-tv-esp32c2.ps1 -ServicePort 19000 `
+    -ServiceUrl 'http://first.service.test/a','http://second.service.test:8081/b' `
+    -Display none
 ```
 
-It starts/stops the fixture and both VMs, verifies failure/retry and positive/
-negative Kelvin payloads, reads only identified synthetic weather globals, and
-requires equal nonblank LCD weather regions. Native cache offsets come from
-the current ELF's DWARF. The factory's unchecked HTTP 503 JSON parser is recorded
-as a vendor defect; the native program rejects it. This does not test access to
-the real Internet weather service, physical RF or the complete application.
+Python accepts `--service-port` and repeated `--service-url` options. Hosts from
+the enabled URL list resolve to separate subnet addresses starting at `.100`;
+multiple paths/ports on one hostname share its address. TCP traffic reaches
+`127.0.0.1:<ServicePort>`. The fixture receives the original HTTP Host, path and
+query. HTTPS requires a compatible TLS fixture. These settings configure
+reachability; firmware must request the same endpoints. `session.json` lists
+`service_urls` and `service_endpoints`, without storing URL queries.
+
+NTP/DNS services follow the configured station subnet. Restricted DHCP receives
+the local DNS option only when no option was already supplied. Other Internet
+access remains restricted and AP/STA localhost port blocks remain separate.
+Existing firmware fixture callers using `weather_port` or `-WeatherPort` retain
+compatibility; new callers should use the generic service interface.
+
+The Small TV differential firmware fixture remains in
+`yoRadio/Small_TV/src/tests/weather_qemu.py`. It checks failure/retry, parsed
+positive/negative temperatures and displayed pixels for factory and reconstructed
+applications. The factory's unchecked 503 JSON parser is recorded as a vendor
+defect. Independent emulator DNS/NTP checks are in
+`tests/esp32_wifi_services_test.py`; they exercise real packets through Wi-Fi DMA
+without executing guest instructions. Firmware-specific assertions remain in the firmware repository.
 
 ## Control and diagnostics
 
