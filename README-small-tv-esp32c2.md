@@ -206,6 +206,50 @@ Flash snapshots are supported; full CPU/device checkpoints and live migration
 are not supported. Compatible C3 UART/GPIO/SPI-flash/SHA/timer building blocks
 are reused while C2 memory, PMP, interrupts, MMU, RTC and GDMA are separate.
 
+## Controlled NTP regression fixtures
+
+The existing `clock-services` station fixture has three runtime QOM controls on
+`/machine/wifi`. They change only external UDP/DNS service responses. They never
+set guest time, alter firmware code or patch guest RAM. Defaults preserve the
+ordinary host-UTC clock fixture and are inert when clock services are disabled.
+
+| QOM property | Default | Meaning |
+| --- | --- | --- |
+| `ntp-unix-seconds` | `-1` | Host UTC, or a fixed nonnegative signed 64-bit UNIX epoch |
+| `ntp-drop-mask` | `0` | Bits 0/1/2 drop NTP replies from servers 1/2/3; only 0..7 is accepted |
+| `ntp-separate-servers` | `false` | Opt into distinct service addresses for testing real SDK fallback |
+
+With separate servers enabled, `ntp1.aliyun.com`, `cn.pool.ntp.org` and
+`pool.ntp.org` resolve to subnet suffixes `.2`, `.4` and `.5`. ARP responds for
+these fixture addresses. With the default disabled setting, all NTP names retain
+the previous `.2` alias. Weather DNS, the AP endpoint and localhost AP/STA port
+assignment are unchanged. A configured numerical `.4` address also reaches the
+second fixture server. The service logs indices and timestamps without arbitrary
+hostnames or user keys.
+
+For example, issue these JSON commands after QMP capabilities negotiation:
+
+```json
+{"execute":"qom-set","arguments":{"path":"/machine/wifi","property":"ntp-separate-servers","value":true}}
+{"execute":"qom-set","arguments":{"path":"/machine/wifi","property":"ntp-unix-seconds","value":1709179420}}
+{"execute":"qom-set","arguments":{"path":"/machine/wifi","property":"ntp-drop-mask","value":3}}
+```
+
+The guest must really contact the first two unavailable servers and then receive
+the third server's NTP packet. Changing the mask restores the service; it does not
+invoke a guest callback. Fixed epochs remain 64-bit even on Windows, whose
+`timeval.tv_sec` uses a 32-bit `long`. NTP wire seconds still wrap at the protocol's
+2036 era boundary; the guest SDK is responsible for era interpretation.
+
+`yoRadio/Small_TV/src/tests/time_qemu.py` exercises factory and reconstructed
+applications, actual clock updates, dates, reconfiguration and reset recovery.
+The factory has intentional recorded defects: invalid-year restarts can starve
+fallback, synchronized 2024 is rejected, and the date waits for a minute then
+retains outer pixels when shortened. Those failures are retained as observations;
+the reconstructed application must show the corrected behavior. The pinned SDK
+keeps its last server index across stop/init, so tests use failure masks to force
+the intended fallback instead of assuming every reconfiguration starts at index 0.
+
 ## Virtual time and verification
 
 The launcher uses `-icount shift=3,align=off,sleep=on`: eight virtual nanoseconds

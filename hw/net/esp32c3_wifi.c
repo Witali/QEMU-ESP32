@@ -20,6 +20,7 @@
 #include "qemu/log.h"
 #include "qemu/guest-random.h"
 #include "qapi/error.h"
+#include "qapi/visitor.h"
 
 /* C2 ROM uses RX 0x64/0x68 and TX PLCP0 0xce8; C3 uses 0x84/0x88
  * and 0xd08. Keep the shared 802.11 and DMA implementation. */
@@ -320,9 +321,70 @@ static void esp32c3_wifi_realize(DeviceState *dev, Error **errp)
     Esp32_WLAN_setup_ap(dev, s);
 }
 
+
+static void wifi_get_ntp_seconds(Object *obj, Visitor *v, const char *name,
+                                 void *opaque, Error **errp)
+{
+    /* Observe the local fixture epoch; -1 keeps the normal host clock. */
+    visit_type_int64(v, name, &ESP32C3_WIFI(obj)->ntp_unix_seconds, errp);
+}
+
+static void wifi_set_ntp_seconds(Object *obj, Visitor *v, const char *name,
+                                 void *opaque, Error **errp)
+{
+    /* Let QMP change the service response without touching any guest clock/RAM. */
+    int64_t value;
+    if (!visit_type_int64(v, name, &value, errp)) return;
+    if (value < -1) {
+        error_setg(errp, "ntp-unix-seconds must be -1 or a nonnegative epoch");
+        return;
+    }
+    ESP32C3_WIFI(obj)->ntp_unix_seconds = value;
+}
+
+static void wifi_get_ntp_drop_mask(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
+{
+    /* Read the three-server failure mask; default zero preserves normal replies. */
+    visit_type_uint32(v, name, &ESP32C3_WIFI(obj)->ntp_drop_mask, errp);
+}
+
+static void wifi_set_ntp_drop_mask(Object *obj, Visitor *v, const char *name,
+                                  void *opaque, Error **errp)
+{
+    /* Drop only selected synthetic NTP servers, never unrelated network traffic. */
+    uint32_t value;
+    if (!visit_type_uint32(v, name, &value, errp)) return;
+    if (value > 7) {
+        error_setg(errp, "ntp-drop-mask must use only bits 0..2");
+        return;
+    }
+    ESP32C3_WIFI(obj)->ntp_drop_mask = value;
+}
+
+static bool wifi_get_ntp_separate(Object *obj, Error **errp)
+{
+    /* Expose the optional per-server addresses for retry/fallback experiments. */
+    return ESP32C3_WIFI(obj)->ntp_separate_servers;
+}
+
+static void wifi_set_ntp_separate(Object *obj, bool value, Error **errp)
+{
+    /* Keep default DNS aliases, or opt into .2/.4/.5 for the three NTP servers. */
+    ESP32C3_WIFI(obj)->ntp_separate_servers = value;
+}
+
 static void esp32c3_wifi_init(Object *obj)
 {
     Esp32C3WifiState *s = ESP32C3_WIFI(obj);
+
+    s->ntp_unix_seconds = -1;
+    object_property_add(obj, "ntp-unix-seconds", "int", wifi_get_ntp_seconds,
+                        wifi_set_ntp_seconds, NULL, NULL);
+    object_property_add(obj, "ntp-drop-mask", "uint32", wifi_get_ntp_drop_mask,
+                        wifi_set_ntp_drop_mask, NULL, NULL);
+    object_property_add_bool(obj, "ntp-separate-servers", wifi_get_ntp_separate,
+                             wifi_set_ntp_separate);
 
     memory_region_init_io(&s->iomem, obj, &esp32c3_wifi_ops, s,
                           TYPE_ESP32C3_WIFI, ESP32C3_WIFI_MMIO_SIZE);

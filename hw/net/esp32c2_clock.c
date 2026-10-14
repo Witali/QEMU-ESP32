@@ -77,7 +77,8 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         lduw_be_p(data + 14) == 1 && lduw_be_p(data + 16) == 0x0800 &&
         data[18] == 6 && data[19] == 4 && lduw_be_p(data + 20) == 1 &&
         !memcmp(data + 38, data + 28, 3) &&
-        (data[41] == 2 || data[41] == 3)) {
+        (data[41] == 2 || data[41] == 3 ||
+         (s->ntp_separate_servers && (data[41] == 4 || data[41] == 5)))) {
         memcpy(reply, data + 6, 6);
         reply[6] = 0x52; reply[7] = 0x55; memcpy(reply + 8, data + 38, 4);
         memcpy(reply + 12, data + 12, 10); stw_be_p(reply + 20, 2);
@@ -102,10 +103,35 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
     if (port == 123) {
         struct timeval now;
         uint32_t seconds, fraction;
+        int64_t unix_seconds;
+        unsigned server = 1;
         if (request_len < 48 || (request[0] & 7) != 3) return true;
-        gettimeofday(&now, NULL);
-        seconds = (uint64_t)now.tv_sec + 2208988800ULL;
-        fraction = ((uint64_t)now.tv_usec << 32) / 1000000;
+        if (s->ntp_separate_servers) {
+            if (memcmp(ip + 16, ip + 12, 3)) return false;
+            switch (ip[19]) {
+            case 2: server = 1; break;
+            case 4: server = 2; break;
+            case 5: server = 3; break;
+            default: return false;
+            }
+        }
+        fprintf(stderr, "C2 NTP request server=%u virtual_us=%" PRId64 "\n",
+                server, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+        if (s->ntp_drop_mask & (1u << (server - 1))) {
+            fprintf(stderr, "C2 NTP drop server=%u\n", server);
+            return true;
+        }
+        if (s->ntp_unix_seconds >= 0) {
+            unix_seconds = s->ntp_unix_seconds;
+            fraction = 0;
+        } else {
+            gettimeofday(&now, NULL);
+            unix_seconds = now.tv_sec;
+            fraction = ((uint64_t)now.tv_usec << 32) / 1000000;
+        }
+        /* Keep 64-bit UNIX time outside Windows timeval.tv_sec (32-bit long).
+         * NTP wire seconds intentionally wrap at the 2036 era boundary. */
+        seconds = (uint64_t)unix_seconds + 2208988800ULL;
         payload[0] = (request[0] & 0x38) | 4; /* server, synchronized */
         payload[1] = 2; /* host clock, not a claimed primary reference */
         payload[2] = request[2];
@@ -121,7 +147,8 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         stl_be_p(payload + 44, fraction);
         payload_len = 48;
         fprintf(stderr, "C2 NTP reply unix_seconds=%" PRId64 " virtual_us=%" PRId64 "\n",
-                (int64_t)now.tv_sec, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+                unix_seconds, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+        fprintf(stderr, "C2 NTP response server=%u\n", server);
     } else if (port == 53) {
         char name[254];
         size_t pos = 12, used = 0;
@@ -156,7 +183,12 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
             uint8_t *a = payload + payload_len;
             stw_be_p(a, 0xc00c); stw_be_p(a + 2, 1); stw_be_p(a + 4, 1);
             stl_be_p(a + 6, 60); stw_be_p(a + 10, 4);
-            memcpy(a + 12, ip + 12, 3); a[15] = weather ? 100 : 2;
+            memcpy(a + 12, ip + 12, 3);
+            a[15] = weather ? 100 : 2;
+            if (!weather && s->ntp_separate_servers) {
+                a[15] = !g_ascii_strcasecmp(name, "cn.pool.ntp.org") ? 4 :
+                        !g_ascii_strcasecmp(name, "pool.ntp.org") ? 5 : 2;
+            }
             payload_len += 16;
         }
     } else return false;
