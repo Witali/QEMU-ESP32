@@ -14,7 +14,7 @@ import uuid
 import small_tv_vm as vm
 
 
-def http(url, path='/', payload=None, timeout=5, origin=None, compact=True):
+def http(url, path='/', payload=None, timeout=5, origin=None, compact=True, ensure_ascii=True):
     """Send direct loopback HTTP, with no environment proxy and bounded response memory."""
     endpoint = urlsplit(url)
     if endpoint.hostname != '127.0.0.1': raise ValueError('Only loopback test endpoints are allowed')
@@ -22,7 +22,7 @@ def http(url, path='/', payload=None, timeout=5, origin=None, compact=True):
     # Factory /configure searches literal JSON.stringify fields rather than
     # parsing JSON; the native handler also accepts ordinary whitespace.
     separators = (',', ':') if compact else (', ', ': ')
-    body = json.dumps(payload, separators=separators).encode() if payload is not None else None
+    body = json.dumps(payload, separators=separators, ensure_ascii=ensure_ascii).encode('utf-8') if payload is not None else None
     headers = {'Content-Type': 'application/json', 'Connection': 'close'}
     if origin is not None: headers['Origin'] = origin
     try:
