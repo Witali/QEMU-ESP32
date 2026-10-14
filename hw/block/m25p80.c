@@ -207,6 +207,8 @@ static const FlashPartInfo known_devices[] = {
     { INFO("en25q64",     0x1c3017,      0,  64 << 10, 128, ER_4K) },
 
     /* GigaDevice */
+    { INFO("gd25q16",     0xc84015,      0,  64 << 10,  32, ER_4K) },
+    { INFO("gd25q128",    0xc84018,      0,  64 << 10, 256, ER_4K) },
     { INFO("gd25q32",     0xc84016,      0,  64 << 10,  64, ER_4K) },
     { INFO("gd25q64",     0xc84017,      0,  64 << 10, 128, ER_4K) },
 
@@ -353,6 +355,8 @@ static const FlashPartInfo known_devices[] = {
     { INFO("w25x80",      0xef3014,      0,  64 << 10,  16, ER_4K) },
     { INFO("w25x16",      0xef3015,      0,  64 << 10,  32, ER_4K) },
     { INFO("w25x32",      0xef3016,      0,  64 << 10,  64, ER_4K) },
+    { INFO("w25q16",      0xef4015,      0,  64 << 10,  32, ER_4K) },
+    { INFO("w25q128",     0xef4018,      0,  64 << 10, 256, ER_4K) },
     { INFO("w25q32",      0xef4016,      0,  64 << 10,  64, ER_4K) },
     { INFO("w25q32dw",    0xef6016,      0,  64 << 10,  64, ER_4K) },
     { INFO("w25x64",      0xef3017,      0,  64 << 10, 128, ER_4K) },
@@ -514,6 +518,7 @@ struct Flash {
     bool four_bytes_address_mode;
     bool reset_enable;
     bool quad_enable;
+    bool byte_dummy_cycles; /* SSI controller sends wire bytes, not clocks. */
     bool aai_enable;
     bool block_protect0;
     bool block_protect1;
@@ -820,6 +825,7 @@ static void complete_collecting_data(Flash *s)
                 s->four_bytes_address_mode = extract32(s->data[1], 5, 1);
             }
             break;
+        case MAN_GIGADEVICE:
         case MAN_WINBOND:
             if (s->len > 1) {
                 s->quad_enable = !!(s->data[1] & 0x02);
@@ -834,8 +840,10 @@ static void complete_collecting_data(Flash *s)
         break;
     case WRSR2:
         switch (get_man(s)) {
+        case MAN_GIGADEVICE:
         case MAN_WINBOND:
             s->quad_enable = !!(s->data[0] & 0x02);
+            s->write_enable = false;
             break;
         default:
             break;
@@ -1000,6 +1008,17 @@ static uint8_t numonyx_extract_cfg_num_dummies(Flash *s)
 static void decode_fast_read_cmd(Flash *s)
 {
     s->needed_bytes = get_addr_length(s);
+    if (s->byte_dummy_cycles &&
+        (get_man(s) == MAN_WINBOND || get_man(s) == MAN_GIGADEVICE)) {
+        /* Fast/output: 8 single clocks. DIO: one mode byte.
+         * QIO: one mode byte + four clocks on four wires (two bytes).
+         * Preserve the legacy clock-token convention for other controllers. */
+        s->needed_bytes += 1;
+        s->pos = 0;
+        s->len = 0;
+        s->state = STATE_COLLECTING_DATA;
+        return;
+    }
     switch (get_man(s)) {
     /* Dummy cycles - modeled with bytes writes instead of bits */
     case MAN_SST:
@@ -1049,6 +1068,17 @@ static void decode_dio_read_cmd(Flash *s)
 {
     s->needed_bytes = get_addr_length(s);
     /* Dummy cycles modeled with bytes writes instead of bits */
+    if (s->byte_dummy_cycles &&
+        (get_man(s) == MAN_WINBOND || get_man(s) == MAN_GIGADEVICE)) {
+        /* Fast/output: 8 single clocks. DIO: one mode byte.
+         * QIO: one mode byte + four clocks on four wires (two bytes).
+         * Preserve the legacy clock-token convention for other controllers. */
+        s->needed_bytes += 1;
+        s->pos = 0;
+        s->len = 0;
+        s->state = STATE_COLLECTING_DATA;
+        return;
+    }
     switch (get_man(s)) {
     case MAN_WINBOND:
         s->needed_bytes += WINBOND_CONTINUOUS_READ_MODE_CMD_LEN;
@@ -1101,6 +1131,17 @@ static void decode_qio_read_cmd(Flash *s)
 {
     s->needed_bytes = get_addr_length(s);
     /* Dummy cycles modeled with bytes writes instead of bits */
+    if (s->byte_dummy_cycles &&
+        (get_man(s) == MAN_WINBOND || get_man(s) == MAN_GIGADEVICE)) {
+        /* Fast/output: 8 single clocks. DIO: one mode byte.
+         * QIO: one mode byte + four clocks on four wires (two bytes).
+         * Preserve the legacy clock-token convention for other controllers. */
+        s->needed_bytes += 3;
+        s->pos = 0;
+        s->len = 0;
+        s->state = STATE_COLLECTING_DATA;
+        return;
+    }
     switch (get_man(s)) {
     case MAN_WINBOND:
     case MAN_GIGADEVICE:
@@ -1170,6 +1211,19 @@ static void decode_new_cmd(Flash *s, uint32_t value)
     if (get_man(s) == MAN_SST && s->aai_enable && !is_valid_aai_cmd(value)) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "M25P80: Invalid cmd within AAI programming sequence");
+    }
+
+    if (s->byte_dummy_cycles && !s->quad_enable &&
+        (get_man(s) == MAN_GIGADEVICE || get_man(s) == MAN_WINBOND) &&
+        (value == QOR || value == QIOR || value == QPP)) {
+        /* A deselected/high-impedance output is represented by pulled-up bits.
+         * Ignore the remainder of the transaction until CS rises. */
+        s->data[0] = 0xff;
+        s->len = 1;
+        s->pos = 0;
+        s->data_read_loop = true;
+        s->state = STATE_READING_DATA;
+        return;
     }
 
     switch (value) {
@@ -1294,6 +1348,7 @@ static void decode_new_cmd(Flash *s, uint32_t value)
             s->needed_bytes = 2;
             s->state = STATE_COLLECTING_VAR_LEN_DATA;
             break;
+        case MAN_GIGADEVICE:
         case MAN_WINBOND:
             s->needed_bytes = 2;
             s->state = STATE_COLLECTING_VAR_LEN_DATA;
@@ -1320,6 +1375,7 @@ static void decode_new_cmd(Flash *s, uint32_t value)
         }
 
         switch (get_man(s)) {
+        case MAN_GIGADEVICE:
         case MAN_WINBOND:
             s->needed_bytes = 1;
             s->state = STATE_COLLECTING_DATA;
@@ -1499,6 +1555,7 @@ static void decode_new_cmd(Flash *s, uint32_t value)
         case MAN_MACRONIX:
             s->quad_enable = true;
             break;
+        case MAN_GIGADEVICE:
         case MAN_WINBOND:
             s->data[0] = (!!s->quad_enable) << 1;
             s->pos = 0;
@@ -1730,6 +1787,7 @@ static int m25p80_pre_save(void *opaque)
 }
 
 static Property m25p80_properties[] = {
+    DEFINE_PROP_BOOL("byte-dummy-cycles", Flash, byte_dummy_cycles, false),
     /* This is default value for Micron flash */
     DEFINE_PROP_BOOL("write-enable", Flash, write_enable, false),
     DEFINE_PROP_UINT32("nonvolatile-cfg", Flash, nonvolatile_cfg, 0x8FFF),
