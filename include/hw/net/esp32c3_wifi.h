@@ -79,6 +79,11 @@ struct Esp32C3WifiState {
     bool c2_layout;
     bool clock_services;
     bool weather_services;
+    char *service_hosts;
+    char **service_hostnames;
+    char *ntp_hosts;
+    char **ntp_hostnames;
+    char *station_ssid;
     bool ntp_separate_servers;
     uint32_t ntp_drop_mask;
     int64_t ntp_unix_seconds;

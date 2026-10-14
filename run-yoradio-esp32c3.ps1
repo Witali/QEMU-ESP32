@@ -7,7 +7,7 @@ param(
     [string]$SpiffsGenerator = "",
     [ValidateSet("ideal", "hardware", "weak", "congested", "offline")]
     [string]$NetworkProfile = "hardware",
-    [string]$Ssid = "yoRadio-QEMU",
+    [string]$Ssid = "",
     [string]$Password = "",
     [ValidateSet("dsound", "wav", "none")]
     [string]$AudioBackend = "dsound",
@@ -28,6 +28,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repository = [IO.Path]::GetFullPath($PSScriptRoot)
+if (!$Ssid) {
+    $deviceProfile = Get-Content -Raw -LiteralPath (Join-Path $repository 'configs\boards\c3-oled.json') | ConvertFrom-Json
+    $Ssid = $deviceProfile.network.station_ssid
+}
 
 function Resolve-ExistingFile {
     param([Parameter(Mandatory)][string]$Path, [string]$Description = "File")
@@ -196,6 +200,7 @@ $qemuArguments = @(
     "-serial", $Serial,
     "-monitor", $Monitor,
     "-no-reboot",
+    "-global", "esp32c3-wifi.station-ssid=$Ssid",
     "-global", "esp32c3-wifi.bandwidth-bps=$($profile.BandwidthBps)",
     "-global", "esp32c3-wifi.latency-ms=$($profile.LatencyMs)",
     "-global", "esp32c3-wifi.jitter-ms=$($profile.JitterMs)",

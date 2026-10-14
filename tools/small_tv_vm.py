@@ -8,6 +8,7 @@ import os
 import re
 from small_tv_network import seed_clock_network, seed_setup_network
 from small_tv_web import reserve_web_ports, user_network_options
+from esp_services import network_profile, service_endpoints
 from esp_board import compile_profile
 from pathlib import Path
 import shutil
@@ -98,7 +99,9 @@ def prepare(args, state):
         source_info = {'images': manifest['images'], 'source_sha256': manifest['source_sha256']}
     check_flash(data)
     if args.network == 'clock':
-        data = seed_clock_network(data, args.firmware, state, args.yoradio)
+        network = network_profile(args.hardware_profile or REPO / 'configs/boards/small-tv-c2.json')
+        data = seed_clock_network(data, args.firmware, state, args.yoradio,
+                                  network.get('station_ssid', 'QEMU'))
     elif args.network == 'setup':
         data = seed_setup_network(data, args.firmware, state, args.yoradio)
     flash_sha = digest(data)
@@ -177,7 +180,15 @@ def launch(args, state):
 
 def _launch(args, state):
     # Validate the optional loopback fixture before creating any VM state.
-    user_network_options(args.network, [], getattr(args, 'weather_port', 0))
+    network = network_profile(args.hardware_profile or REPO / 'configs/boards/small-tv-c2.json')
+    service_urls = getattr(args, 'service_urls', None)
+    if service_urls is None:
+        service_urls = network['urls']
+    service_port = getattr(args, 'service_port', 0) or getattr(args, 'weather_port', 0) or 0
+    user_network_options(args.network, [], service_port, service_urls)
+    services = service_endpoints(service_urls)
+    if set(network['ntp_hosts']) & {row['hostname'] for row in services}:
+        raise ValueError('NTP and HTTP service hostnames must be distinct')
     info = prepare(args, state)
     help_text = subprocess.check_output([args.qemu, '-machine', 'help'], text=True)
     if 'esp32c2 ' not in help_text:
@@ -200,11 +211,16 @@ def _launch(args, state):
     web_endpoints, reservations = reserve_web_ports(args.network, getattr(args, 'http_base_port', 0))
     if args.network in ('clock', 'setup'):
         command += ['-global', 'esp32c3-wifi.clock-services=on',
-                    '-nic', user_network_options(args.network, web_endpoints, getattr(args, 'weather_port', 0))]
-        if getattr(args, 'weather_port', 0):
-            command += ['-global', 'esp32c3-wifi.weather-services=on']
-        if args.network == 'setup':
-            command += ['-global', 'esp32c3-wifi.softap-client-ssid=Small_TV']
+                    '-global', 'esp32c3-wifi.ntp-hosts=' + ';'.join(network['ntp_hosts']),
+                    '-global', 'esp32c3-wifi.station-ssid=' + network.get('station_ssid', 'QEMU'),
+                    '-nic', user_network_options(args.network, web_endpoints, service_port, service_urls)]
+        if service_port:
+            hosts = list(dict.fromkeys(row['hostname'] for row in services))
+            command += ['-global', 'esp32c3-wifi.service-hosts=' + ';'.join(hosts)]
+            if getattr(args, 'weather_port', 0):
+                command += ['-global', 'esp32c3-wifi.weather-services=on']
+        if args.network == 'setup' and network.get('softap_client_ssid'):
+            command += ['-global', 'esp32c3-wifi.softap-client-ssid=' + network['softap_client_ssid']]
     else:
         command += ['-nic', 'none']
     if not args.persistent: command.append('-snapshot')
@@ -223,6 +239,11 @@ def _launch(args, state):
                'hardware_profile': hardware, 'network': args.network, 'persistent': args.persistent, 'qemu': args.qemu, 'started_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
     session['web_endpoints'] = web_endpoints
     session['web_urls'] = {row['name']: row['url'] for row in web_endpoints}
+    session['service_urls'] = [row['url'] for row in services] if service_port else []
+    prefix = '192.168.43.' if args.network == 'setup' else '10.0.2.'
+    session['service_endpoints'] = [dict(row, guest_address=prefix + str(row['suffix']),
+                                       host_address='127.0.0.1', host_port=service_port)
+                                    for row in services] if service_port else []
     save_json(state / 'session.json', session)
     for attempt in range(50):
         if process.poll() is not None:
@@ -385,7 +406,9 @@ def main():
     parser.add_argument('--hardware-profile', default='')
     parser.add_argument('--network', choices=['clock','setup','offline'], default='clock')
     parser.add_argument('--http-base-port', type=int, default=0, help='First consecutive localhost HTTP port; 0 auto, -1 disable')
-    parser.add_argument('--weather-port', type=int, default=0, help='Opt-in loopback HTTP weather fixture port; 0 disables')
+    parser.add_argument('--service-port', type=int, default=0, help='Loopback fixture port for the profile URL list; 0 disables')
+    parser.add_argument('--service-url', dest='service_urls', action='append', help='Guest HTTP(S) URL; repeat to override the device profile URL list')
+    parser.add_argument('--weather-port', type=int, help=argparse.SUPPRESS)
     parser.add_argument('--persistent', action='store_true')
     parser.add_argument('--paused', action='store_true')
     parser.add_argument('--gdb-port', type=int, default=0)

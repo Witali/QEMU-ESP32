@@ -309,10 +309,80 @@ static void esp32c3_wifi_reset(DeviceState *dev)
     esp32c3_wifi_update_irq(s);
 }
 
+static bool wifi_valid_service_host(const char *host)
+{
+    const char *label;
+
+    if (!host || !*host || strlen(host) > 253) {
+        return false;
+    }
+    label = host;
+    for (const char *p = host; ; p++) {
+        if (*p == '.' || !*p) {
+            size_t length = p - label;
+
+            if (!length || length > 63 || *label == '-' || p[-1] == '-') {
+                return false;
+            }
+            if (!*p) {
+                return true;
+            }
+            label = p + 1;
+        } else if (!g_ascii_isalnum(*p) && *p != '-') {
+            return false;
+        }
+    }
+}
+
+static bool wifi_parse_hosts(const char *value, char ***out, size_t limit,
+                             const char *name, Error **errp)
+{
+    g_auto(GStrv) hosts = value && *value ? g_strsplit(value, ";", -1) :
+                                          g_new0(char *, 1);
+    size_t count = g_strv_length(hosts);
+
+    if (count > limit) {
+        error_setg(errp, "%s contains too many hostnames", name);
+        return false;
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (!wifi_valid_service_host(hosts[i])) {
+            error_setg(errp, "%s must contain valid ASCII DNS hostnames", name);
+            return false;
+        }
+        for (size_t j = 0; j < i; j++) {
+            if (!g_ascii_strcasecmp(hosts[i], hosts[j])) {
+                error_setg(errp, "%s must contain distinct hostnames", name);
+                return false;
+            }
+        }
+    }
+    *out = g_steal_pointer(&hosts);
+    return true;
+}
+
 static void esp32c3_wifi_realize(DeviceState *dev, Error **errp)
 {
     Esp32C3WifiState *s = ESP32C3_WIFI(dev);
 
+    if (!wifi_parse_hosts(s->service_hosts, &s->service_hostnames, 155,
+                          "service-hosts", errp) ||
+        !wifi_parse_hosts(s->ntp_hosts, &s->ntp_hostnames, 3,
+                          "ntp-hosts", errp)) {
+        return;
+    }
+    for (size_t i = 0; s->service_hostnames[i]; i++) {
+        for (size_t j = 0; s->ntp_hostnames[j]; j++) {
+            if (!g_ascii_strcasecmp(s->service_hostnames[i], s->ntp_hostnames[j])) {
+                error_setg(errp, "HTTP and NTP service hostnames must be distinct");
+                return;
+            }
+        }
+    }
+    if (!s->station_ssid || !s->station_ssid[0] || strlen(s->station_ssid) > 32) {
+        error_setg(errp, "station-ssid must contain 1..32 bytes");
+        return;
+    }
     if (s->softap_client_ssid && (!s->softap_client_ssid[0] ||
                                 strlen(s->softap_client_ssid) > 32)) {
         error_setg(errp, "softap-client-ssid must contain 1..32 bytes");
@@ -379,6 +449,7 @@ static void esp32c3_wifi_init(Object *obj)
     Esp32C3WifiState *s = ESP32C3_WIFI(obj);
 
     s->ntp_unix_seconds = -1;
+    s->station_ssid = g_strdup("QEMU");
     object_property_add(obj, "ntp-unix-seconds", "int", wifi_get_ntp_seconds,
                         wifi_set_ntp_seconds, NULL, NULL);
     object_property_add(obj, "ntp-drop-mask", "uint32", wifi_get_ntp_drop_mask,
@@ -398,6 +469,9 @@ static void esp32c3_wifi_class_init(ObjectClass *klass, void *data)
     static const Property properties[] = {
         DEFINE_PROP_BOOL("clock-services", Esp32C3WifiState, clock_services, false),
         DEFINE_PROP_BOOL("weather-services", Esp32C3WifiState, weather_services, false),
+        DEFINE_PROP_STRING("service-hosts", Esp32C3WifiState, service_hosts),
+        DEFINE_PROP_STRING("ntp-hosts", Esp32C3WifiState, ntp_hosts),
+        DEFINE_PROP_STRING("station-ssid", Esp32C3WifiState, station_ssid),
         DEFINE_PROP_STRING("softap-client-ssid", Esp32C3WifiState, softap_client_ssid),
         DEFINE_PROP_BOOL("c2-layout", Esp32C3WifiState, c2_layout, false),
         DEFINE_NIC_PROPERTIES(Esp32C3WifiState, conf),
@@ -418,11 +492,20 @@ static void esp32c3_wifi_class_init(ObjectClass *klass, void *data)
     set_bit(DEVICE_CATEGORY_NETWORK, dc->categories);
 }
 
+static void esp32c3_wifi_finalize(Object *obj)
+{
+    Esp32C3WifiState *s = ESP32C3_WIFI(obj);
+
+    g_strfreev(s->service_hostnames);
+    g_strfreev(s->ntp_hostnames);
+}
+
 static const TypeInfo esp32c3_wifi_info = {
     .name = TYPE_ESP32C3_WIFI,
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Esp32C3WifiState),
     .instance_init = esp32c3_wifi_init,
+    .instance_finalize = esp32c3_wifi_finalize,
     .class_init = esp32c3_wifi_class_init,
 };
 

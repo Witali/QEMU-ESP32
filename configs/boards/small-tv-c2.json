@@ -1,6 +1,13 @@
 {
   "schema": 1,
   "soc": "esp32c2",
+  "name": "small-tv",
+  "network": {
+    "station_ssid": "yoRadio-QEMU",
+    "softap_client_ssid": "Small_TV",
+    "ntp_hosts": ["ntp1.aliyun.com", "cn.pool.ntp.org", "pool.ntp.org"],
+    "urls": ["http://api.openweathermap.org/data/2.5/weather"]
+  },
   "devices": [
     {
       "id": "lcd",

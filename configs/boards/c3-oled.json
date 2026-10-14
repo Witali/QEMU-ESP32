@@ -1,6 +1,8 @@
 {
   "schema": 1,
   "soc": "esp32c3",
+  "name": "c3-oled",
+  "network": { "station_ssid": "yoRadio-QEMU" },
   "devices": [
     {
       "id": "oled",

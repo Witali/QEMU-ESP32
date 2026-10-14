@@ -49,7 +49,7 @@ class NetworkTests(unittest.TestCase):
     def test_opt_in_loopback_weather(self):
         self.assertNotIn('guestfwd', user_network_options('clock', []))
         for network, address in [('clock', '10.0.2.100'), ('setup', '192.168.43.100')]:
-            options = user_network_options(network, [], 19000)
+            options = user_network_options(network, [], 19000, ['http://fixture.test'])
             self.assertIn(f'guestfwd=tcp:{address}:80-tcp:127.0.0.1:19000', options)
             self.assertIn('restrict=on', options)
         for port in (-1, 65536, '19000'):

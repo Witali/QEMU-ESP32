@@ -166,11 +166,20 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         pos++;
         /* Opt-in DNS only: SLIRP guestfwd carries real guest TCP/HTTP to
          * a loopback fixture. The usual isolated clock profile is unchanged. */
-        bool weather = s->weather_services &&
-            !g_ascii_strcasecmp(name, "api.openweathermap.org");
-        bool known = weather || !g_ascii_strcasecmp(name, "ntp1.aliyun.com") ||
-            !g_ascii_strcasecmp(name, "cn.pool.ntp.org") ||
-            !g_ascii_strcasecmp(name, "pool.ntp.org");
+        int service = -1, ntp = -1;
+        for (size_t i = 0; s->service_hostnames && s->service_hostnames[i]; i++) {
+            if (!g_ascii_strcasecmp(name, s->service_hostnames[i])) {
+                service = i;
+                break;
+            }
+        }
+        for (size_t i = 0; s->ntp_hostnames && s->ntp_hostnames[i]; i++) {
+            if (!g_ascii_strcasecmp(name, s->ntp_hostnames[i])) {
+                ntp = i;
+                break;
+            }
+        }
+        bool known = service >= 0 || ntp >= 0;
         bool answer = known && lduw_be_p(request + pos) == 1 && lduw_be_p(request + pos + 2) == 1;
         payload_len = pos + 4;
         memcpy(payload, request, payload_len);
@@ -179,15 +188,16 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         stw_be_p(payload + 8, 0); stw_be_p(payload + 10, 0);
         if (answer) {
             /* Log only the known service class, never a requested hostname or key. */
-            fprintf(stderr, "C2 DNS answer service=%s\n", weather ? "weather" : "ntp");
+            /* Retain the old diagnostic only for callers using its legacy flag. */
+            fprintf(stderr, "C2 DNS answer service=%s\n", service >= 0 ?
+                    (s->weather_services ? "weather" : "http") : "ntp");
             uint8_t *a = payload + payload_len;
             stw_be_p(a, 0xc00c); stw_be_p(a + 2, 1); stw_be_p(a + 4, 1);
             stl_be_p(a + 6, 60); stw_be_p(a + 10, 4);
             memcpy(a + 12, ip + 12, 3);
-            a[15] = weather ? 100 : 2;
-            if (!weather && s->ntp_separate_servers) {
-                a[15] = !g_ascii_strcasecmp(name, "cn.pool.ntp.org") ? 4 :
-                        !g_ascii_strcasecmp(name, "pool.ntp.org") ? 5 : 2;
+            a[15] = service >= 0 ? 100 + service : 2;
+            if (service < 0 && s->ntp_separate_servers) {
+                a[15] = ntp == 1 ? 4 : ntp == 2 ? 5 : 2;
             }
             payload_len += 16;
         }

@@ -63,9 +63,9 @@
 #define ANSI_FG_HCOLOR(f) printf("\033[1;%dm", (f) + 30)
 
 access_point_info access_points[]={
-    {"yoRadio-QEMU",1,-25,{0x10,0x01,0x00,0xc4,0x0a,0x56}},
-    {"Espressif",5,-30,{0x10,0x01,0x00,0xc4,0x0a,0x51}},
-    {"MasseyWifi",10,-40,{0x10,0x01,0x00,0xc4,0x0a,0x52}}
+    {"QEMU",1,-25,{0x10,0x01,0x00,0xc4,0x0a,0x56}},
+    {"QEMU-2",5,-30,{0x10,0x01,0x00,0xc4,0x0a,0x51}},
+    {"QEMU-3",10,-40,{0x10,0x01,0x00,0xc4,0x0a,0x52}}
 };
 
 int nb_aps=sizeof(access_points)/sizeof(access_point_info);
@@ -180,7 +180,9 @@ static void Esp32_WLAN_beacon_timer(void *opaque)
         for(int i=0;i<nb_aps;i++){
           int ap = (i + s->beacon_ap)%nb_aps;
           if (access_points[ap].channel==esp32c3_wifi_channel(s)) {
-              frame = Esp32_WLAN_create_beacon_frame(&access_points[ap]);
+              access_point_info info = access_points[ap];
+              if (ap == 0) info.ssid = s->station_ssid;
+              frame = Esp32_WLAN_create_beacon_frame(&info);
               if (s->mode == Esp32_Mode_SoftAP) {
                   /* A setup AP may scan other networks while its client stays
                    * associated. Advertise their own BSSID without changing it. */
@@ -713,6 +715,7 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
     static access_point_info dummy_ap={0};
     static char ssid[64];
     access_point_info station_ap = access_points[0];
+    station_ap.ssid = s->station_ssid;
     char requested_ssid[33] = { 0 };
     unsigned long ethernet_frame_size;
     unsigned char ethernet_frame[1518];
@@ -758,7 +761,9 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
         frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ) {
         for (int i = 0; i < nb_aps; ++i) {
             if (access_points[i].channel != esp32c3_wifi_channel(s)) continue;
-            reply = Esp32_WLAN_create_probe_response(&access_points[i]);
+            access_point_info info = access_points[i];
+            if (i == 0) info.ssid = s->station_ssid;
+            reply = Esp32_WLAN_create_probe_response(&info);
             memcpy(reply->destination_address, frame->source_address, 6);
             memcpy(reply->source_address, access_points[i].mac_address, 6);
             memcpy(reply->bssid_address, access_points[i].mac_address, 6);
