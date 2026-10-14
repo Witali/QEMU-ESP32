@@ -345,8 +345,11 @@ def test_vm(args, state):
         if args.firmware == 'reconstructed':
             checks['app_main_completed'] = 'Reconstructed ESP32-C2 clock started' in uart and 'Returned from app_main' in uart
             if args.network == 'offline': checks['ap_started'] = 'DHCP server started' in uart
-            region = lambda frame: frame[143*240*3:224*240*3]
-            checks['animation_updates'] = len({digest(region(f)) for f in screenshots}) > 1
+            # Offline/setup displays a static configuration page. Only the
+            # synchronized clock scene must change its animation region.
+            if args.network == 'clock':
+                region = lambda frame: frame[143*240*3:224*240*3]
+                checks['animation_updates'] = len({digest(region(f)) for f in screenshots}) > 1
         clock = None
         if args.network == 'clock':
             clock = read_guest_clock(state)
