@@ -288,6 +288,11 @@ static void esp_cpu_override_tcg_interrupts(Object *obj)
     CPUClass *cc = CPU_CLASS(klass);
     EspRISCVCPUClass *cpuclass = ESP_CPU_CLASS(klass);
 
+    /* qtest does not install TCG operations or execute guest instructions. */
+    if (!cc->tcg_ops) {
+        return;
+    }
+
     /* The goal of this RISC-V CPU child class is to override the way interrupts are handled.
      * In theory, it would be enough to override `do_interrupt` function from the CPU's TCGCPUOps
      * structure, however, in practice, we have to override `riscv_cpu_exec_interrupt` function.
