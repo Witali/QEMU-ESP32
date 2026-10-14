@@ -138,6 +138,17 @@ jobs:
         run: |
           ninja -C build install
 
+      - name: ESP regression tests
+        if: matrix.target == 'riscv32-softmmu' && matrix.platform == 'x86_64-linux-gnu'
+        run: |
+          python3 -B -m unittest discover -s tools -p 'test_*.py' -v
+          python3 -B tests/esp32c3_flash_test.py \
+            --qemu install/qemu/bin/qemu-system-riscv32 \
+            --bios install/qemu/share/qemu --output build/esp32c3-flash-results.json
+          python3 -B tests/esp32_wifi_services_test.py \
+            --qemu install/qemu/bin/qemu-system-riscv32 \
+            --bios install/qemu/share/qemu --output build/esp32-wifi-services-results.json
+
       - name: Bundle Windows DLLs (${{ matrix.target }} @ ${{ matrix.platform }})
         if : ${{ matrix.platform == 'x86_64-w64-mingw32' }}
         run: |
