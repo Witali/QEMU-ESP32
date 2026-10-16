@@ -115,6 +115,7 @@ struct Esp32C3WifiState {
     uint32_t loss_ppm;
     uint32_t queue_limit;
     bool link_down;
+    bool station_ap_online;
 
     uint8_t ipaddr[4];
     uint8_t macaddr[6];
@@ -137,6 +138,7 @@ void Esp32_sendFrame(Esp32C3WifiState *s, struct mac80211_frame *frame,
                      int length, int signal_strength);
 void Esp32_WLAN_frame_delivered(Esp32C3WifiState *s);
 void Esp32_WLAN_rx_ready(Esp32C3WifiState *s);
+void Esp32_WLAN_set_station_ap_online(Esp32C3WifiState *s, bool online);
 
 bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size);
 

@@ -325,3 +325,41 @@ The modular SPI/I2C/SD checks pass. Unchanged CYD and C3 OLED images also pass
 boot/display/no-panic checks, including the C3 modular profile. The Xtensa
 executable and canonical installed RISC-V executable were not replaced during
 these candidate checks.
+
+
+### External station AP shutdown and recovery
+
+The runtime boolean QOM property `station-ap-online` defaults to true. Setting
+it false gracefully shuts down the modeled external AP: queued station traffic
+is discarded, an associated guest receives an actual 802.11 deauthentication
+frame (reason 3), and further station traffic receives no service. Setting it
+true makes the AP available again; the guest performs authentication,
+association and DHCP using its own SDK. The guest's setup SoftAP is independent.
+The selected external state survives a guest system reset.
+
+For example, use QMP after obtaining the Wi-Fi object's path with `qom-list`:
+
+```json
+{"execute":"qom-set","arguments":{"path":"/machine/wifi","property":"station-ap-online","value":false}}
+{"execute":"qom-set","arguments":{"path":"/machine/wifi","property":"station-ap-online","value":true}}
+```
+
+This models an announced AP shutdown, not a sudden RF cut or beacon-loss
+timeout. The existing static `link-down` setting and packet-loss controls remain
+separate. No firmware RAM, registers, clock, instructions or PC are assigned.
+
+All eight packet tests pass for candidate RISC-V executable SHA-256
+`fde38d5311cf05b7c22e9ed114b2b57f22ce25f0f06d3f31b02bf519cc8d42eb`.
+The new C2/C3 case checks the actual DMA deauthentication bytes, idempotent
+shutdown, no UDP service while offline, real reassociation and reset retention.
+Eleven helper tests, modular SPI/I2C/SD tests, unchanged CYD/C3 OLED boots and
+real initial HTTP setup/AP-to-STA/persistence for both Small TV applications
+also pass. Those integration runs use genuine ROM and firmware instructions.
+
+A separate read-only GDB observation of reconstructed app `a2b6129b` records
+the live SDK connection flag becoming false, the simple clock advancing while
+offline, and normal reconnection/HTTP recovery. All three completed 240x240
+frames match the declared corrected factory renderer exactly; the retained
+station address is `10.0.2.15`. This scoped run does not validate every theme,
+long outages, Wi-Fi security or physical radio. Canonical executables were
+not replaced during these candidate checks.

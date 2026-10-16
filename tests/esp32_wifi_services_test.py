@@ -128,6 +128,7 @@ class Machine:
         self.command('clock_step 1000000')
 
     def associate(self):
+        self.seen = 0
         for i in range(32):
             next_desc = self.rx_desc + (i + 1) * 12 if i < 31 else 0
             self.write(self.rx_desc + i * 12,
@@ -137,15 +138,21 @@ class Machine:
         self.send(0, struct.pack('<HH', 0, 1))
         self.replies()
 
-    def replies(self):
+    def frames(self):
+        """Read completed DMA buffers, including management frames with metadata."""
         packets = []
         while self.seen < 32:
             flags = struct.unpack('<I', self.read(self.rx_desc + self.seen * 12, 4))[0]
             length = (flags >> 12) & 0xfff
             if not length:
                 break
-            packet = self.read(self.rx_data + self.seen * 2048, length)
+            packets.append(self.read(self.rx_data + self.seen * 2048, length))
             self.seen += 1
+        return packets
+
+    def replies(self):
+        packets = []
+        for packet in self.frames():
             offset = packet.find(LLC)
             if offset >= 0:
                 packets.append(packet[offset + len(LLC):])
@@ -170,6 +177,38 @@ class Machine:
 
 
 class WifiServicesTests(unittest.TestCase):
+    def test_station_ap_shutdown_and_recovery(self):
+        for c2 in (False, True):
+            with self.subTest(c2=c2), Machine(('clock-services=on',), c2=c2) as machine:
+                request = bytearray(48)
+                request[0] = 0x23
+                machine.associate()
+                self.assertEqual(len(machine.udp(123, request, 2)), 1)
+                machine.set('station-ap-online', False)
+                machine.command('clock_step 1000000')
+                packets = machine.frames()
+                self.assertEqual(len(packets), 1)
+                # Metadata precedes the complete 24-byte header, reason and FCS.
+                frame = packets[0][-30:]
+                self.assertEqual(frame[:2], b'\xc0\x00')
+                self.assertEqual(frame[4:10], STATION)
+                self.assertEqual(frame[10:16], AP)
+                self.assertEqual(frame[16:22], AP)
+                self.assertEqual(frame[24:26], b'\x03\x00')
+                machine.set('station-ap-online', False)
+                machine.command('clock_step 1000000')
+                self.assertEqual(machine.frames(), [])
+                self.assertEqual(machine.udp(123, request, 2), [])
+                machine.set('station-ap-online', True)
+                machine.associate()
+                self.assertEqual(len(machine.udp(123, request, 2)), 1)
+                machine.set('station-ap-online', False)
+                machine.qmp.execute('system_reset')
+                self.assertFalse(machine.get('station-ap-online'))
+                machine.set('station-ap-online', True)
+                machine.associate()
+                self.assertEqual(len(machine.udp(123, request, 2)), 1)
+
     def test_c2_receive_waits_for_dma_and_keeps_bounded_fifo(self):
         with Machine(('clock-services=on', 'queue-limit=2'), c2=True) as machine:
             machine.associate()
@@ -200,14 +239,14 @@ class WifiServicesTests(unittest.TestCase):
 
     def test_ntp_controls_and_reset(self):
         with Machine() as machine:
-            defaults = {'clock-services': False, 'weather-services': False,
+            defaults = {'clock-services': False, 'weather-services': False, 'station-ap-online': True,
                         'service-hosts': '', 'ntp-hosts': '', 'station-ssid': 'QEMU', 'ntp-unix-seconds': -1,
                         'ntp-drop-mask': 0, 'ntp-separate-servers': False}
             for name, value in defaults.items():
                 self.assertEqual(machine.get(name), value)
             for name, value in [('ntp-unix-seconds', -2), ('ntp-unix-seconds', 1 << 63),
                                 ('ntp-drop-mask', -1), ('ntp-drop-mask', 8),
-                                ('ntp-separate-servers', 'invalid')]:
+                                ('ntp-separate-servers', 'invalid'), ('station-ap-online', 'invalid')]:
                 with self.subTest(name=name, value=value), self.assertRaises(RuntimeError):
                     machine.set(name, value)
                 self.assertEqual(machine.get(name), defaults[name])

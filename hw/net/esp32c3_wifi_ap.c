@@ -169,12 +169,54 @@ static void Esp32_WLAN_send_ethernet(Esp32C3WifiState *s,
     s->ethernet_tx_queue_size++;
 }
 
+void Esp32_WLAN_set_station_ap_online(Esp32C3WifiState *s, bool online)
+{
+    /* Shut down only the external AP. The guest handles deauthentication,
+     * its own reconnect policy and DHCP; no firmware state is injected. */
+    if (s->station_ap_online == online) {
+        return;
+    }
+    if (!online && s->nic && s->mode == Esp32_Mode_Station) {
+        struct mac80211_frame *frame;
+        Esp32C3WifiEthernetPacket *packet;
+
+        /* An AP shutdown discards queued data, then sends one leaving notice.
+         * Preserve the guest SoftAP path and the normal reset/configuration. */
+        while ((frame = s->inject_queue)) {
+            s->inject_queue = frame->next_frame;
+            free(frame);
+        }
+        while ((packet = s->ethernet_tx_queue)) {
+            s->ethernet_tx_queue = packet->next;
+            g_free(packet);
+        }
+        s->inject_queue_size = 0;
+        s->inject_timer_running = false;
+        s->ethernet_tx_tail = NULL;
+        s->ethernet_tx_queue_size = 0;
+        timer_del(s->inject_timer);
+        timer_del(s->ethernet_tx_timer);
+        if (s->ap_state == Esp32_WLAN__STATE_ASSOCIATED) {
+            frame = Esp32_WLAN_create_deauthentication();
+            memcpy(frame->destination_address, s->macaddr, 6);
+            memcpy(frame->source_address, s->associated_ap_macaddr, 6);
+            memcpy(frame->bssid_address, s->associated_ap_macaddr, 6);
+            frame->signal_strength = -25;
+            frame->sequence_control.sequence_number = s->inject_sequence_number++;
+            Esp32_WLAN_insert_frame(s, frame);
+        }
+        s->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
+    }
+    s->station_ap_online = online;
+}
+
 static void Esp32_WLAN_beacon_timer(void *opaque)
 {
     struct mac80211_frame *frame;
     Esp32C3WifiState *s = (Esp32C3WifiState *)opaque;
     // only send a beacon if we are an access point
-    if (ENABLE_BEACON && (s->mode == Esp32_Mode_Station || s->softap_client_ssid)) {
+    if (ENABLE_BEACON && ((s->mode == Esp32_Mode_Station && s->station_ap_online) ||
+                          (s->mode == Esp32_Mode_SoftAP && s->softap_client_ssid))) {
       if(s->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED ||
          (s->softap_client_ssid && s->mode == Esp32_Mode_SoftAP)) {
         for(int i=0;i<nb_aps;i++){
@@ -504,6 +546,9 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
     if (!s) {
         return -1;
     }
+    if (!s->station_ap_online && s->mode == Esp32_Mode_Station) {
+        return size;
+    }
     /*
      * A 802.3 packet comes from the qemu network. The
      * access points turns it into a 802.11 frame and
@@ -758,6 +803,15 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
 
     if (memcmp(frame->source_address, BROADCAST, sizeof(s->macaddr))) {
         memcpy(s->macaddr, frame->source_address, sizeof(s->macaddr));
+    }
+
+    if (!s->station_ap_online && s->mode == Esp32_Mode_Station &&
+        !(frame->frame_control.type == IEEE80211_TYPE_MGT &&
+          frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_BEACON)) {
+        /* The guest may still start its own AP after failed station retries. */
+        esp32c3_wifi_set_packet_status(s, ESP32C3_RADIO_PHYA_NACK);
+        Esp32_WLAN_frame_delivered(s);
+        return;
     }
 
     if(s->mode == Esp32_Mode_Station){

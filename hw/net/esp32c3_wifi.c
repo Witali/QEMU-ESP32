@@ -465,11 +465,24 @@ static void wifi_set_ntp_separate(Object *obj, bool value, Error **errp)
     ESP32C3_WIFI(obj)->ntp_separate_servers = value;
 }
 
+static bool wifi_get_station_ap_online(Object *obj, Error **errp)
+{
+    /* Read the external station AP state, independently of the guest's SoftAP. */
+    return ESP32C3_WIFI(obj)->station_ap_online;
+}
+
+static void wifi_set_station_ap_online(Object *obj, bool value, Error **errp)
+{
+    /* Model a graceful AP shutdown through a real 802.11 management frame. */
+    Esp32_WLAN_set_station_ap_online(ESP32C3_WIFI(obj), value);
+}
+
 static void esp32c3_wifi_init(Object *obj)
 {
     Esp32C3WifiState *s = ESP32C3_WIFI(obj);
 
     s->ntp_unix_seconds = -1;
+    s->station_ap_online = true;
     s->station_ssid = g_strdup("QEMU");
     object_property_add(obj, "ntp-unix-seconds", "int", wifi_get_ntp_seconds,
                         wifi_set_ntp_seconds, NULL, NULL);
@@ -477,6 +490,8 @@ static void esp32c3_wifi_init(Object *obj)
                         wifi_set_ntp_drop_mask, NULL, NULL);
     object_property_add_bool(obj, "ntp-separate-servers", wifi_get_ntp_separate,
                              wifi_set_ntp_separate);
+    object_property_add_bool(obj, "station-ap-online", wifi_get_station_ap_online,
+                             wifi_set_station_ap_online);
 
     memory_region_init_io(&s->iomem, obj, &esp32c3_wifi_ops, s,
                           TYPE_ESP32C3_WIFI, ESP32C3_WIFI_MMIO_SIZE);
