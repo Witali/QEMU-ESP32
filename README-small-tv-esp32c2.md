@@ -286,3 +286,19 @@ and the final network validation uses `-Display none`.
 Hardware specifications can be checked against Espressif's
 [ESP8684 datasheet](https://documentation.espressif.com/esp8684_datasheet_en.html)
 and the target headers/ROM ELF in the pinned ESP-IDF source archive.
+
+
+### Diagnosing receive drops
+
+The disabled-by-default `esp32c3_wifi_rx_drop` trace records virtual time, the
+current RX descriptor, frame type/sequence/length and the model's drop reason.
+Enable only this event with `-d trace:esp32c3_wifi_rx_drop -D wifi-rx.log`, or
+the HMP command `log trace:esp32c3_wifi_rx_drop`. It does not change packet
+delivery or guest state. Avoid global `guest_errors` tracing for timing tests:
+unrelated register warnings can dominate the runtime.
+
+An isolated Small TV diagnostic on the unchanged app `9e4f856a` correlated
+slow connection attempts with `no-descriptor` drops. In 120 synthetic settings
+POSTs, two replies took about 5.74/5.76 virtual seconds; a separate Ethernet
+PCAP records the SYN retransmissions. The trace identifies the model-side loss,
+but is not a complete network/concurrency or physical-radio acceptance test.

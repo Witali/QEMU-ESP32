@@ -21,6 +21,7 @@
 #include "qemu/guest-random.h"
 #include "qapi/error.h"
 #include "qapi/visitor.h"
+#include "trace.h"
 
 /* C2 ROM uses RX 0x64/0x68 and TX PLCP0 0xce8; C3 uses 0x84/0x88
  * and 0xd08. Keep the shared 802.11 and DMA implementation. */
@@ -126,6 +127,18 @@ static void esp32c3_wifi_complete_tx(Esp32C3WifiState *s, int slot,
     esp32c3_wifi_update_irq(s);
 }
 
+static void esp32c3_wifi_trace_rx_drop(Esp32C3WifiState *s,
+                                        mac80211_frame *frame, int length,
+                                        const char *reason)
+{
+    /* Observe model-side losses without changing delivery or guest state. */
+    trace_esp32c3_wifi_rx_drop(qemu_clock_get_us(QEMU_CLOCK_VIRTUAL),
+                             s->rx_desc, frame->frame_control.type,
+                             frame->frame_control.sub_type,
+                             frame->sequence_control.sequence_number,
+                             length, reason);
+}
+
 void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
                      int signal_strength)
 {
@@ -136,18 +149,24 @@ void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
     size_t packet_length;
     MemTxResult result;
 
-    if (!s->rx_desc || length <= 0) {
+    if (length <= 0) {
+        return;
+    }
+    if (!s->rx_desc) {
+        esp32c3_wifi_trace_rx_drop(s, frame, length, "no-descriptor");
         return;
     }
 
     result = address_space_read(&address_space_memory, s->rx_desc,
                                 MEMTXATTRS_UNSPECIFIED, &desc, sizeof(desc));
     if (result != MEMTX_OK) {
+        esp32c3_wifi_trace_rx_drop(s, frame, length, "descriptor-read");
         return;
     }
 
     packet_length = sizeof(metadata) + length;
     if (packet_length > desc.size) {
+        esp32c3_wifi_trace_rx_drop(s, frame, length, "buffer-size");
         qemu_log_mask(LOG_GUEST_ERROR,
                       "esp32c3-wifi: RX packet (%zu bytes) exceeds DMA "
                       "buffer (%u bytes)\n", packet_length, desc.size);
@@ -205,6 +224,7 @@ void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
                                  packet_length);
     g_free(packet);
     if (result != MEMTX_OK) {
+        esp32c3_wifi_trace_rx_drop(s, frame, length, "packet-write");
         return;
     }
 

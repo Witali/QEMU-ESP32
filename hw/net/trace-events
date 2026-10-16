@@ -511,3 +511,6 @@ xen_netdev_connect(int dev, unsigned int tx, unsigned int rx, int port) "vif%u t
 xen_netdev_frontend_changed(const char *dev, int state) "vif%s state %d"
 xen_netdev_tx(int dev, int ref, int off, int len, unsigned int flags, const char *c, const char *d, const char *m, const char *e) "vif%u ref %u off %u len %u flags 0x%x%s%s%s%s"
 xen_netdev_rx(int dev, int idx, int status, int flags) "vif%u idx %d status %d flags 0x%x"
+
+# esp32c3_wifi.c
+esp32c3_wifi_rx_drop(uint64_t virtual_us, uint32_t descriptor, int type, int subtype, int sequence, int length, const char *reason) "virtual_us=%"PRIu64" descriptor=0x%08"PRIx32" type=%d subtype=%d sequence=%d bytes=%d reason=%s"
