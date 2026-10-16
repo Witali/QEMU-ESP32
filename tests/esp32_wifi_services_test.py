@@ -29,7 +29,12 @@ def free_port():
 
 
 class Machine:
-    def __init__(self, properties=()):
+    def __init__(self, properties=(), c2=False):
+        shift = 0x20000 if c2 else 0
+        self.wifi = 0x60047000 if c2 else WIFI
+        self.tx_desc, self.tx_data = TX_DESC + shift, TX_DATA + shift
+        self.rx_desc, self.rx_data = RX_DESC + shift, RX_DATA + shift
+        self.tx_register, self.rx_register = (0xce8, 0x68) if c2 else (0xd08, 0x88)
         self.temp = tempfile.TemporaryDirectory(prefix='esp-wifi-services-')
         self.folder = Path(self.temp.name)
         self.qmp = self.sock = self.stream = self.proc = None
@@ -39,9 +44,13 @@ class Machine:
         qmp_port, test_port = free_port(), free_port()
         while test_port == qmp_port:
             test_port = free_port()
-        command = [OPTIONS.qemu, '-M', 'esp32c3', '-accel', 'qtest',
+        if c2:
+            # QTest executes no CPU/ROM instructions. A size-correct placeholder
+            # avoids requiring a proprietary ROM for register/packet tests.
+            (self.folder / 'esp32c2-rev200-rom.bin').write_bytes(bytes(0x90000))
+        command = [OPTIONS.qemu, '-M', 'esp32c2,default-peripherals=off' if c2 else 'esp32c3', '-accel', 'qtest',
                    '-display', 'none', '-serial', 'none', '-monitor', 'none',
-                   '-nic', 'none', '-L', OPTIONS.bios,
+                   '-nic', 'none', '-L', str(self.folder) if c2 else OPTIONS.bios,
                    '-drive', f'file={flash},if=mtd,format=raw', '-snapshot',
                    '-qmp', f'tcp:127.0.0.1:{qmp_port},server=on,wait=off',
                    '-qtest', f'tcp:127.0.0.1:{test_port},server=on,wait=off',
@@ -113,17 +122,17 @@ class Machine:
 
     def send(self, control, data):
         frame = struct.pack('<HH', control, 0) + AP + STATION + AP + b'\0\0' + data + bytes(4)
-        self.write(TX_DATA, frame)
-        self.write(TX_DESC, struct.pack('<III', len(frame) | (len(frame) << 12) | (3 << 30), TX_DATA, 0))
-        self.command(f'writel {WIFI + 0xd08:#x} {0xc0000000 | (TX_DESC & 0xfffff):#x}')
+        self.write(self.tx_data, frame)
+        self.write(self.tx_desc, struct.pack('<III', len(frame) | (len(frame) << 12) | (3 << 30), self.tx_data, 0))
+        self.command(f'writel {self.wifi + self.tx_register:#x} {0xc0000000 | (self.tx_desc & 0xfffff):#x}')
         self.command('clock_step 1000000')
 
     def associate(self):
         for i in range(32):
-            next_desc = RX_DESC + (i + 1) * 12 if i < 31 else 0
-            self.write(RX_DESC + i * 12,
-                       struct.pack('<III', 2048 | (1 << 31), RX_DATA + i * 2048, next_desc))
-        self.command(f'writel {WIFI + 0x88:#x} {RX_DESC:#x}')
+            next_desc = self.rx_desc + (i + 1) * 12 if i < 31 else 0
+            self.write(self.rx_desc + i * 12,
+                       struct.pack('<III', 2048 | (1 << 31), self.rx_data + i * 2048, next_desc))
+        self.command(f'writel {self.wifi + self.rx_register:#x} {self.rx_desc:#x}')
         self.send(0xb0, struct.pack('<HHH', 0, 1, 0))
         self.send(0, struct.pack('<HH', 0, 1))
         self.replies()
@@ -131,11 +140,11 @@ class Machine:
     def replies(self):
         packets = []
         while self.seen < 32:
-            flags = struct.unpack('<I', self.read(RX_DESC + self.seen * 12, 4))[0]
+            flags = struct.unpack('<I', self.read(self.rx_desc + self.seen * 12, 4))[0]
             length = (flags >> 12) & 0xfff
             if not length:
                 break
-            packet = self.read(RX_DATA + self.seen * 2048, length)
+            packet = self.read(self.rx_data + self.seen * 2048, length)
             self.seen += 1
             offset = packet.find(LLC)
             if offset >= 0:
@@ -161,6 +170,34 @@ class Machine:
 
 
 class WifiServicesTests(unittest.TestCase):
+    def test_c2_receive_waits_for_dma_and_keeps_bounded_fifo(self):
+        with Machine(('clock-services=on', 'queue-limit=2'), c2=True) as machine:
+            machine.associate()
+            # The SDK exhausted its current chain. Prepare fresh buffers in RAM
+            # but do not arm the MAC until after three incoming replies.
+            machine.command(f'writel {machine.wifi + machine.rx_register:#x} 0')
+            machine.seen = 0
+            for i in range(32):
+                next_desc = machine.rx_desc + (i + 1) * 12 if i < 31 else 0
+                machine.write(machine.rx_desc + i * 12,
+                    struct.pack('<III', 2048 | (1 << 31), machine.rx_data + i * 2048, next_desc))
+            for nonce in (1, 2, 3):
+                request = bytearray(48)
+                request[0] = 0x23
+                request[40:48] = bytes([nonce]) * 8
+                self.assertEqual(machine.udp(123, request, 2), [])
+            # A long starvation interval must not drain or reorder the queue.
+            machine.command('clock_step 5000000000')
+            self.assertEqual(machine.replies(), [])
+            machine.command(f'writel {machine.wifi + machine.rx_register:#x} {machine.rx_desc:#x}')
+            machine.command('clock_step 1000000')
+            replies = machine.replies()
+            self.assertEqual(len(replies), 2)
+            self.assertEqual([reply[28 + 24:28 + 32] for reply in replies],
+                             [bytes([1]) * 8, bytes([2]) * 8])
+            machine.command('clock_step 1000000000')
+            self.assertEqual(machine.replies(), [])
+
     def test_ntp_controls_and_reset(self):
         with Machine() as machine:
             defaults = {'clock-services': False, 'weather-services': False,

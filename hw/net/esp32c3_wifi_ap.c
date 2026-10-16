@@ -203,12 +203,34 @@ static void Esp32_WLAN_beacon_timer(void *opaque)
     timer_mod(s->beacon_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + BEACON_TIME);
 }
 
+void Esp32_WLAN_rx_ready(Esp32C3WifiState *s)
+{
+    /* Resume bounded C2 receive work when the guest supplies a DMA buffer.
+     * No polling delay is needed: RX_BASE_DESC writes are the wakeup event. */
+    if (s->c2_layout && s->rx_desc && s->inject_queue &&
+        !s->inject_timer_running) {
+        s->inject_timer_running = true;
+        timer_mod(s->inject_timer,
+                  MAX(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),
+                      s->inject_queue->delivery_ns));
+    }
+}
+
 static void Esp32_WLAN_inject_timer(void *opaque)
 {
     Esp32C3WifiState *s = (Esp32C3WifiState *)opaque;
     struct mac80211_frame *frame;
 
     frame = s->inject_queue;
+    if (frame && s->c2_layout && !s->rx_desc) {
+        /* A burst can exhaust C2's small DMA chain before its RX ISR refills
+         * it. Retain this frame and its order in the existing bounded queue;
+         * silently discarding it forced SLIRP to wait for a TCP SYN retry.
+         * The guest's next RX_BASE_DESC write resumes delivery. Legacy C3
+         * delivery is unchanged, and queue-limit/loss controls still apply. */
+        s->inject_timer_running = false;
+        return;
+    }
     if (frame) {
         // remove from queue
         s->inject_queue_size--;

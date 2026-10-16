@@ -136,6 +136,7 @@ void Esp32_WLAN_reset_ap(Esp32C3WifiState *s);
 void Esp32_sendFrame(Esp32C3WifiState *s, struct mac80211_frame *frame,
                      int length, int signal_strength);
 void Esp32_WLAN_frame_delivered(Esp32C3WifiState *s);
+void Esp32_WLAN_rx_ready(Esp32C3WifiState *s);
 
 bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size);
 

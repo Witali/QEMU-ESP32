@@ -279,6 +279,7 @@ static void esp32c3_wifi_write(void *opaque, hwaddr addr, uint64_t value,
     switch (addr) {
     case ESP32C3_WIFI_RX_BASE_DESC:
         s->rx_desc = value;
+        Esp32_WLAN_rx_ready(s);
         break;
     case ESP32C3_WIFI_RX_CTRL:
         /* Hardware clears the RX descriptor update request immediately. */

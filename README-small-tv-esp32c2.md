@@ -302,3 +302,26 @@ slow connection attempts with `no-descriptor` drops. In 120 synthetic settings
 POSTs, two replies took about 5.74/5.76 virtual seconds; a separate Ethernet
 PCAP records the SYN retransmissions. The trace identifies the model-side loss,
 but is not a complete network/concurrency or physical-radio acceptance test.
+
+
+### C2 RX DMA backpressure
+
+When a C2 RX burst exhausts its DMA chain, the next frame stays at the head of
+the existing bounded injection queue. Writing a new RX base descriptor wakes
+delivery immediately, respecting the original delivery time and FIFO order.
+There is no retry polling timer. Configured loss and queue-limit controls still
+apply. The legacy C3 delivery path is unchanged.
+
+The packet regression includes a C2 QTest case for a five-second descriptor
+starvation interval, queue-limit overflow, ordered release and no duplicates.
+QTest executes no firmware instructions; its C2 ROM is a size-correct placeholder.
+The previous emulator fails this case, while the corrected emulator passes all
+seven DNS/NTP/receive tests. A separate real Small TV run completed 120 settings
+POSTs with a maximum response time of 0.166 virtual seconds, versus earlier
+SYN-retry delays around six seconds. This does not replace a complete firmware
+suite or physical RF/concurrency acceptance.
+
+The modular SPI/I2C/SD checks pass. Unchanged CYD and C3 OLED images also pass
+boot/display/no-panic checks, including the C3 modular profile. The Xtensa
+executable and canonical installed RISC-V executable were not replaced during
+these candidate checks.
