@@ -513,3 +513,28 @@ The quiet and diagnostic executable SHA-256 values are `0b3f6f69...616e6` and
 `f3d7b024...8fdc5`. The two previously rejected host-wall/RTC-only measurements
 were test-observation errors; neither was relabeled as a passing firmware run.
 These scoped results do not replace full firmware parity or a 24-hour soak.
+
+
+### Wait for reset clock readiness in guest time
+
+Clock-mode reset validation waits for a newer NTP response, actual SDK UTC within
+one second of that response, and the native connected/DHCP/SNTP flags. It no
+longer assumes that sleeping eight host seconds means the clock has synchronized.
+The pinned SDK enables `SNTP_STARTUP_DELAY_FUNC = LWIP_RAND() % 5000`;
+`icount` can run fewer guest seconds than host seconds. A debug guest was still
+connected but not synchronized at the old fixed checkpoint; a measured run
+recovered after 8.25 host / 6.415086 guest seconds.
+
+The wait has independent limits of 15 guest seconds and 60 host seconds. It uses
+the read-only low radio microsecond counter, handles one counter wrap, and stops
+on either deadline, including when the guest clock stalls. It does not alter
+the SDK delay, network state, guest RAM or PC. The existing UTC error bound is
+unchanged. `reset_readiness` records both elapsed times and the observed state.
+Offline AP validation retains its existing observation path.
+
+The ELF/clock suite now has 19 cases, including delayed readiness beyond eight
+host seconds, stale reply rejection, missing notification, incorrect SDK UTC,
+stalled guest time, counter wrap and an answer arriving after the deadline.
+The previous fixed-wait failure is preserved as a failed attempt; it is not
+relabeled as a successful firmware run. The canonical helper used by an active
+immutable firmware regression is updated only after that regression finishes.

@@ -415,6 +415,44 @@ def ntp_reply_observation(qmp, state, metadata_available, diagnostics, layout):
             'expected_utc_seconds': expected, 'difference_seconds': actual - expected}
 
 
+def wait_for_clock_recovery(qmp, state, clock_layout, previous_count,
+                            metadata_available, diagnostics, host_timeout=60, guest_timeout=15):
+    """Wait for a fresh processed NTP reply, bounded in both guest and host time.
+
+    The SDK randomizes SNTP startup by up to five guest seconds. Eight host
+    seconds can contain less guest time under icount, especially with DEBUG.
+    A new response, actual SDK UTC and native connection/sync flags are required.
+    """
+    def virtual_us():
+        output = qmp.execute('human-monitor-command', **{'command-line': 'xp /1wx 0x6004d000'})
+        values = re.findall(r'0x([0-9a-fA-F]{8})\b', output)
+        if len(values) != 1:
+            raise ValueError('Short reset clock observation')
+        return int(values[0], 16)
+
+    started, initial = time.monotonic(), virtual_us()
+    polls = 0
+    while True:
+        sample = ntp_reply_observation(qmp, state, metadata_available, diagnostics, clock_layout)
+        runtime = (application_state(qmp, clock_layout)
+                   if 'connected' in clock_layout['symbols'] else None)
+        host_seconds = time.monotonic() - started
+        # The radio exposes the low 32 microsecond bits; one bounded wait
+        # cannot span a full wrap, but may start immediately before a wrap.
+        guest_seconds = ((virtual_us() - initial) & 0xffffffff) / 1e6
+        polls += 1
+        if host_seconds >= host_timeout or guest_seconds >= guest_timeout:
+            raise TimeoutError(f'No fresh synchronized clock after reset: '
+                               f'{host_seconds:.3f} host / {guest_seconds:.3f} guest seconds')
+        if (sample is not None and sample['response_count'] > previous_count and
+                abs(sample['difference_seconds']) < 1 and
+                (runtime is None or (runtime['connected'] and runtime['time_synced'] and
+                 not runtime['ap_active'] and runtime['station_address'] == '10.0.2.15'))):
+            return {'passed': True, 'host_seconds': host_seconds, 'guest_seconds': guest_seconds,
+                    'polls': polls, 'state': runtime, 'ntp': sample}
+        time.sleep(.1)
+
+
 def test_vm(args, state):
     args.display, args.persistent, args.paused = 'none', False, False
     # Reject a wrong/missing observation ELF before starting a disposable VM.
@@ -423,6 +461,7 @@ def test_vm(args, state):
     runtime = after_reset_runtime = None
     diagnostics, reply_metadata = True, False
     ntp_observation = reset_ntp_observation = None
+    reset_readiness = None
     session, prepared = launch(args, state)
     before = digest((state / 'flash.bin').read_bytes())
     screenshots = []
@@ -487,7 +526,13 @@ def test_vm(args, state):
                 checks['sntp_notification_received'] = runtime['time_synced']
         # Reset the VM and verify the guest can boot and draw a second time.
         with QMP(session['qmp_port'], session['name']) as qmp: qmp.execute('system_reset')
-        time.sleep(8)
+        if args.network == 'clock':
+            with QMP(session['qmp_port'], session['name']) as qmp:
+                reset_readiness = wait_for_clock_recovery(qmp, state, clock_layout,
+                    ntp_observation['response_count'] if ntp_observation else 0,
+                    reply_metadata, diagnostics)
+        else:
+            time.sleep(8)
         with QMP(session['qmp_port'], session['name']) as qmp:
             qmp.execute('screendump', filename=str(state / 'after-reset.ppm'))
             if args.network == 'clock':
@@ -525,7 +570,7 @@ def test_vm(args, state):
               'prepared': prepared, 'error': error, 'qemu_sha256': digest(Path(args.qemu).read_bytes()),
               'runtime_observation': {'layout': layout, 'before_reset': runtime, 'after_reset': after_reset_runtime},
               'clock_layout': clock_layout, 'ntp_observation': ntp_observation, 'reset_ntp_observation': reset_ntp_observation,
-              'qemu_diagnostics_enabled': diagnostics,
+              'qemu_diagnostics_enabled': diagnostics, 'reset_readiness': reset_readiness,
               'tested_at_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
     save_json(state / 'test-report.json', report)
     return report

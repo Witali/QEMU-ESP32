@@ -7,13 +7,14 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMP_ROOT = ROOT / '.cache/esp-elf-unit'
 sys.path.insert(0, str(ROOT / 'tools'))
 from esp_elf import object_symbols
-from small_tv_vm import application_state, application_state_layout, ntp_reply_observation
+from small_tv_vm import application_state, application_state_layout, ntp_reply_observation, wait_for_clock_recovery
 
 OBJECTS = {'connected': (0x3fca1000, 1), 'ap_active': (0x3fca1001, 1),
            'time_synced': (0x3fca1002, 1), 'last_station_address': (0x3fca1004, 4),
@@ -177,6 +178,68 @@ class RuntimeStateTests(unittest.TestCase):
     def test_short_observation_is_not_readiness(self):
         with self.assertRaises(ValueError):
             self.read_state(short=True)
+
+
+class ClockRecoveryTests(unittest.TestCase):
+    def wait(self, samples, flags=None, host_step=4, guest_step=1000000, start=0):
+        """Advance only synthetic host/MMIO clocks; keep the real wait predicate."""
+        class HostTime:
+            value = 0
+            def monotonic(self): return self.value
+            def sleep(self, ignored): self.value += host_step
+        class Qmp:
+            count = -1
+            def execute(self, command, **arguments):
+                if command != 'human-monitor-command' or arguments['command-line'] != 'xp /1wx 0x6004d000':
+                    raise AssertionError('Unexpected guest write or call')
+                self.count += 1
+                value = (start + self.count * guest_step) & 0xffffffff
+                return f'000000006004d000: 0x{value:08x}'
+        native = {'connected': True, 'time_synced': True, 'ap_active': False, 'station_address': '10.0.2.15'}
+        sequence = iter(samples)
+        states = iter(flags or [native] * len(samples))
+        last_sample, last_flags = samples[-1], (flags or [native])[-1]
+        with patch('small_tv_vm.time', HostTime()), \
+             patch('small_tv_vm.ntp_reply_observation', side_effect=lambda *args: next(sequence, last_sample)), \
+             patch('small_tv_vm.application_state', side_effect=lambda *args: next(states, last_flags)):
+            return wait_for_clock_recovery(Qmp(), Path('.'), {'symbols': {'connected': {}}}, 1, True, False)
+
+    def test_late_ready_is_not_an_eight_host_second_failure(self):
+        old = {'response_count': 1, 'difference_seconds': 0}
+        new = {'response_count': 2, 'difference_seconds': 0}
+        wrong = {'response_count': 2, 'difference_seconds': 2}
+        bad = {'connected': True, 'time_synced': False, 'ap_active': False, 'station_address': '10.0.2.15'}
+        good = {**bad, 'time_synced': True}
+        result = self.wait([old, wrong, new, new], [good, good, bad, good])
+        self.assertGreater(result['host_seconds'], 8)
+        self.assertLess(result['guest_seconds'], 15)
+        self.assertEqual(result['polls'], 4)
+
+    def test_old_reply_times_out_on_guest_clock(self):
+        with self.assertRaises(TimeoutError):
+            self.wait([{'response_count': 1, 'difference_seconds': 0}], host_step=0, guest_step=2000000)
+
+    def test_notification_is_required(self):
+        with self.assertRaises(TimeoutError):
+            self.wait([{'response_count': 2, 'difference_seconds': 0}],
+                      [{'connected': True, 'time_synced': False, 'ap_active': False, 'station_address': '10.0.2.15'}])
+
+    def test_wrong_sdk_clock_is_not_ready(self):
+        with self.assertRaises(TimeoutError):
+            self.wait([{'response_count': 2, 'difference_seconds': 1.5}])
+
+    def test_stalled_guest_has_a_host_deadline(self):
+        with self.assertRaises(TimeoutError):
+            self.wait([{'response_count': 1, 'difference_seconds': 0}], guest_step=0)
+
+    def test_ready_after_guest_deadline_is_rejected(self):
+        samples = [{'response_count': 1, 'difference_seconds': 0}] * 14
+        with self.assertRaises(TimeoutError):
+            self.wait(samples + [{'response_count': 2, 'difference_seconds': 0}], host_step=1)
+
+    def test_radio_counter_wrap(self):
+        result = self.wait([{'response_count': 2, 'difference_seconds': 0}], guest_step=512, start=0xffffff00)
+        self.assertAlmostEqual(result['guest_seconds'], .000512)
 
 
 def main():
