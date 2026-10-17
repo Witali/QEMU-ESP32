@@ -514,3 +514,7 @@ xen_netdev_rx(int dev, int idx, int status, int flags) "vif%u idx %d status %d f
 
 # esp32c3_wifi.c
 esp32c3_wifi_rx_drop(uint64_t virtual_us, uint32_t descriptor, int type, int subtype, int sequence, int length, const char *reason) "virtual_us=%"PRIu64" descriptor=0x%08"PRIx32" type=%d subtype=%d sequence=%d bytes=%d reason=%s"
+
+# Passive ESP Wi-Fi admission diagnosis; packet payload is never logged.
+esp32c3_wifi_packet_stage(uint64_t virtual_us, const char *stage, uint32_t descriptor, uint32_t next, int sequence, int kind, int length, uint32_t queued, const char *tcp, int signal) "virtual_us=%"PRIu64" stage=%s descriptor=0x%08"PRIx32" next=0x%08"PRIx32" sequence=%d kind=0x%x bytes=%d queued=%u tcp=%s signal=%d"
+esp32c3_wifi_rx_state(uint64_t virtual_us, uint32_t reg, uint32_t value, uint32_t next, uint32_t last, uint32_t interrupts, uint32_t queued) "virtual_us=%"PRIu64" reg=0x%x value=0x%08"PRIx32" next=0x%08"PRIx32" last=0x%08"PRIx32" interrupts=0x%x queued=%u"

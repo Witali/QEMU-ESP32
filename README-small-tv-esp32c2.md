@@ -363,3 +363,25 @@ frames match the declared corrected factory renderer exactly; the retained
 station address is `10.0.2.15`. This scoped run does not validate every theme,
 long outages, Wi-Fi security or physical radio. Canonical executables were
 not replaced during these candidate checks.
+
+
+### Passive Wi-Fi admission tracing
+
+`esp32c3_wifi_packet_stage` identifies enqueue, enqueue-drop and completed DMA
+stages using the MAC sequence, DMA addresses, queue depth and optional TCP
+ports/sequence/flags. `esp32c3_wifi_rx_state` observes RX register writes and
+interrupt acknowledgement. These events are disabled by default. Enable the
+ESP Wi-Fi events with `-d trace:esp32c3_wifi* -D wifi-admission.log`, or use the
+HMP `log trace:esp32c3_wifi*` command on an isolated synthetic test VM. The trace
+never logs HTTP headers or bodies. Its format conversion lives in
+`hw/net/esp32c3_wifi_trace.c` separately from queue and DMA handling.
+
+Data-frame allocation now initializes a default -25 dBm signal level; beacon
+and management constructors may override it. Previously the common constructor
+left this field uninitialized, so simultaneous allocations could produce RSSI
+from unrelated heap contents. The packet regression queues eight replies at
+once and checks the metadata on both C2 and C3. Immediate single-frame tests
+could hide the issue by reusing an earlier valid management-frame allocation.
+This definite metadata fix alone is not proof that every observed TCP retry
+or HTTP latency outlier has been eliminated; compare identical quiet workloads
+and retain the end-to-end firmware latency checks.

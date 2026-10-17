@@ -22,6 +22,7 @@
 #include "qapi/error.h"
 #include "qapi/visitor.h"
 #include "trace.h"
+#include "esp32c3_wifi_trace.h"
 
 /* C2 ROM uses RX 0x64/0x68 and TX PLCP0 0xce8; C3 uses 0x84/0x88
  * and 0xd08. Keep the shared 802.11 and DMA implementation. */
@@ -234,6 +235,7 @@ void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
                         MEMTXATTRS_UNSPECIFIED, &desc, sizeof(uint32_t));
     /* C2's wDev_AppendRxBlocks reads the completed tail when NEXT becomes
      * zero. Returning NEXT as LAST fabricates 0x3fc00000 and faults on +8. */
+    esp32_wifi_trace_packet(s, frame, "dma", s->rx_desc, desc.next);
     s->rx_last_desc = s->rx_desc;
     s->rx_desc = desc.next;
     s->interrupt_status |= ESP32C3_WIFI_INT_RX_DONE;
@@ -304,6 +306,12 @@ static void esp32c3_wifi_write(void *opaque, hwaddr addr, uint64_t value,
     }
 
     s->regs[physical_addr / sizeof(uint32_t)] = value;
+    if (addr == ESP32C3_WIFI_RX_BASE_DESC || addr == ESP32C3_WIFI_RX_CTRL ||
+        addr == ESP32C3_WIFI_INT_CLEAR) {
+        trace_esp32c3_wifi_rx_state(qemu_clock_get_us(QEMU_CLOCK_VIRTUAL),
+            physical_addr, value, s->rx_desc, s->rx_last_desc,
+            s->interrupt_status, s->inject_queue_size);
+    }
 }
 
 static const MemoryRegionOps esp32c3_wifi_ops = {

@@ -33,6 +33,7 @@
 #include "net/net.h"
 #include "qemu/guest-random.h"
 #include "qemu/timer.h"
+#include "esp32c3_wifi_trace.h"
 
 #include "hw/irq.h"
 #include "hw/net/esp32c3_wifi.h"
@@ -481,6 +482,7 @@ void Esp32_WLAN_insert_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
     insertCRC(frame);
     if (Esp32_WLAN_packet_lost(s) ||
         s->inject_queue_size >= s->queue_limit) {
+        esp32_wifi_trace_packet(s, frame, "enqueue-drop", s->rx_desc, 0);
         free(frame);
         return;
     }
@@ -503,6 +505,7 @@ void Esp32_WLAN_insert_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
         i_frame->next_frame = frame;
     }
 
+    esp32_wifi_trace_packet(s, frame, "enqueue", s->rx_desc, 0);
     if (!s->inject_timer_running) {
         // if the injection timer is not
         // running currently, let's schedule
