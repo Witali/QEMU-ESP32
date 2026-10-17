@@ -8,6 +8,7 @@ param(
     [string]$QemuExecutable = '',
     [string]$PythonExecutable = '',
     [string]$RomElf = '',
+    [string]$AppElf = '',
     [string]$HardwareProfile = '',
     [string]$StateDirectory = '',
     [ValidateSet('sdl','none')][string]$Display = 'sdl',
@@ -61,6 +62,7 @@ $arguments = @(
     '--state', ([IO.Path]::GetFullPath($StateDirectory)),
     '--network', $Network, '--http-base-port', "$HttpBasePort", '--service-port', "$ServicePort", '--display', $Display, '--seconds', "$TestSeconds", '--gdb-port', "$GdbPort"
 )
+if ($AppElf) { $arguments += @('--app-elf', ([IO.Path]::GetFullPath($AppElf))) }
 foreach ($url in $ServiceUrl) { $arguments += @('--service-url', $url) }
 if ($HardwareProfile) { $arguments += @('--hardware-profile', ([IO.Path]::GetFullPath($HardwareProfile))) }
 if ($Persistent) { $arguments += '--persistent' }

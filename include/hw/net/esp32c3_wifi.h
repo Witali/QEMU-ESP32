@@ -87,6 +87,11 @@ struct Esp32C3WifiState {
     bool ntp_separate_servers;
     uint32_t ntp_drop_mask;
     int64_t ntp_unix_seconds;
+    /* Last generated external-service response; retained across guest reset.
+     * No packet contents or traffic-time formatting are retained. */
+    int64_t ntp_reply_unix_seconds;
+    int64_t ntp_reply_virtual_us;
+    uint64_t ntp_reply_count;
     char *softap_client_ssid;
     NICConf conf;
     NICState *nic;

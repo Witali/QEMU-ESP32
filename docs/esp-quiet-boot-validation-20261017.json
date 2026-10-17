@@ -1,0 +1,660 @@
+{
+  "passed": true,
+  "scope": "Quiet boot observation and C2/C3 Wi-Fi snapshot; not a complete firmware parity or physical/24h result.",
+  "unit": {
+    "passed": true,
+    "tests": 12,
+    "failures": [],
+    "errors": [],
+    "source_sha256": "f743322b3791c3ee77595cab1d2934ff8411ddf37c44c5f7b24d2787f95c5c08",
+    "converter_sha256": "e3df95bed3d782bae56ed5d75117bbf2a85a49d7ad2c43a0293df74c4d01bdd9",
+    "vm_helper_sha256": "bad0c129c0a5fadfbdde340fd3432e2d6d4dbb3af6c332374879d2f6b016ef4d"
+  },
+  "boot_consumer": {
+    "passed": true,
+    "checks": 29,
+    "rejections": {
+      "missing_units": true,
+      "failed_units": true,
+      "omitted_units": true,
+      "wrong_unit_source": true,
+      "wrong_converter": true,
+      "wrong_vm_helper": true,
+      "wrong_elf": true,
+      "missing_observation": true,
+      "disconnected": true,
+      "reset_not_synced": true,
+      "reset_wrong_dhcp": true,
+      "station_is_ap": true,
+      "outside_ram": true,
+      "wrong_bool_size": true,
+      "missing_symbols": true,
+      "wrong_qemu": true,
+      "reset_not_ready": true,
+      "uart_only_readiness": true,
+      "wrong_layout_helper": true,
+      "coarse_ntp_only": true,
+      "missing_ntp": true,
+      "wrong_ntp_base": true,
+      "wrong_ntp_expectation": true,
+      "reset_missing_ntp": true,
+      "reset_wrong_ntp_base": true,
+      "reset_old_ntp_reply": true,
+      "wrong_sdk_clock_layout": true,
+      "wrong_clock_object_size": true,
+      "wrong_sdk_offset": true
+    }
+  },
+  "vm_helpers": {
+    "small_tv_vm.py": "bad0c129c0a5fadfbdde340fd3432e2d6d4dbb3af6c332374879d2f6b016ef4d",
+    "esp_elf.py": "e3df95bed3d782bae56ed5d75117bbf2a85a49d7ad2c43a0293df74c4d01bdd9"
+  },
+  "compiled_model_sources": {
+    "hw/net/esp32c2_clock.c": "c9dc2ce9abf18ba4420cf0aa307c8f0b6cc55b517bd6525e4126a256acd17270",
+    "hw/net/esp32c3_wifi.c": "3c2507bb74add0441647d5db0220f9f7424db628e9ee7c898c7a451e295f1381",
+    "include/hw/net/esp32c3_wifi.h": "139de3f569cf930854fa4f7c93989ab9aaa826293f923b2705092afc19430301"
+  },
+  "boot_matrix": {
+    "passed": true,
+    "flows": {
+      "native-silent": {
+        "passed": true,
+        "checks": {
+          "machine_still_running": true,
+          "rom_and_bootloader": true,
+          "lcd_240x240": true,
+          "lcd_has_content": true,
+          "no_panic_or_watchdog": true,
+          "application_runtime_ready": true,
+          "animation_updates": true,
+          "ntp_reply_sent": true,
+          "guest_clock_set_by_sntp": true,
+          "wifi_associated": true,
+          "station_dhcp": true,
+          "sntp_notification_received": true,
+          "clock_recovered_after_reset": true,
+          "runtime_ready_after_reset": true,
+          "no_panic_after_reset": true,
+          "reset_reboots": true,
+          "source_flash_unchanged": true,
+          "source_artifacts_unchanged": true
+        },
+        "error": null,
+        "ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 1,
+          "server_epoch": 1792250846,
+          "sent_virtual_us": 6256737,
+          "boot_time_us": 1792250840586820,
+          "virtual_us": 19775361,
+          "systimer_ticks": 205629884,
+          "rtc_hrt_offset_us": 69517,
+          "system_correction_us": -63020,
+          "since_boot_us": 19778601,
+          "actual_utc_seconds": 1792250860.365421,
+          "expected_utc_seconds": 1792250859.518624,
+          "difference_seconds": 0.846796989440918
+        },
+        "reset_ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 2,
+          "server_epoch": 1792250879,
+          "sent_virtual_us": 25748979,
+          "boot_time_us": 1792250851300346,
+          "virtual_us": 25917219,
+          "systimer_ticks": 269528279,
+          "rtc_hrt_offset_us": 21884923,
+          "system_correction_us": -19841528,
+          "since_boot_us": 27959575,
+          "actual_utc_seconds": 1792250879.259921,
+          "expected_utc_seconds": 1792250879.16824,
+          "difference_seconds": 0.09168100357055664
+        }
+      },
+      "original-silent": {
+        "passed": true,
+        "checks": {
+          "machine_still_running": true,
+          "rom_and_bootloader": true,
+          "lcd_240x240": true,
+          "lcd_has_content": true,
+          "no_panic_or_watchdog": true,
+          "ntp_reply_sent": true,
+          "guest_clock_set_by_sntp": true,
+          "clock_recovered_after_reset": true,
+          "no_panic_after_reset": true,
+          "reset_reboots": true,
+          "source_flash_unchanged": true,
+          "source_artifacts_unchanged": true
+        },
+        "error": null,
+        "ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 1,
+          "server_epoch": 1792250886,
+          "sent_virtual_us": 5234697,
+          "boot_time_us": 1792250880755687,
+          "virtual_us": 28997147,
+          "systimer_ticks": 301555087,
+          "rtc_hrt_offset_us": 65298,
+          "system_correction_us": -59196,
+          "since_boot_us": 29001783,
+          "actual_utc_seconds": 1792250909.75747,
+          "expected_utc_seconds": 1792250909.76245,
+          "difference_seconds": -0.0049800872802734375
+        },
+        "reset_ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 2,
+          "server_epoch": 1792250916,
+          "sent_virtual_us": 33060039,
+          "boot_time_us": 1792250880430336,
+          "virtual_us": 36129086,
+          "systimer_ticks": 375734365,
+          "rtc_hrt_offset_us": 32060552,
+          "system_correction_us": -29067712,
+          "since_boot_us": 39121144,
+          "actual_utc_seconds": 1792250919.55148,
+          "expected_utc_seconds": 1792250919.069047,
+          "difference_seconds": 0.4824330806732178
+        }
+      },
+      "native-diagnostic": {
+        "passed": true,
+        "checks": {
+          "machine_still_running": true,
+          "rom_and_bootloader": true,
+          "lcd_240x240": true,
+          "lcd_has_content": true,
+          "no_panic_or_watchdog": true,
+          "application_runtime_ready": true,
+          "animation_updates": true,
+          "ntp_reply_sent": true,
+          "guest_clock_set_by_sntp": true,
+          "wifi_associated": true,
+          "station_dhcp": true,
+          "sntp_notification_received": true,
+          "clock_recovered_after_reset": true,
+          "runtime_ready_after_reset": true,
+          "no_panic_after_reset": true,
+          "reset_reboots": true,
+          "source_flash_unchanged": true,
+          "source_artifacts_unchanged": true
+        },
+        "error": null,
+        "ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 1,
+          "server_epoch": 1792250926,
+          "sent_virtual_us": 5048336,
+          "boot_time_us": 1792250920948661,
+          "virtual_us": 24176088,
+          "systimer_ticks": 251419384,
+          "rtc_hrt_offset_us": 69722,
+          "system_correction_us": -63207,
+          "since_boot_us": 24181455,
+          "actual_utc_seconds": 1792250945.130116,
+          "expected_utc_seconds": 1792250945.127752,
+          "difference_seconds": 0.002363920211791992
+        },
+        "reset_ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 2,
+          "server_epoch": 1792250955,
+          "sent_virtual_us": 27225317,
+          "boot_time_us": 1792250926047646,
+          "virtual_us": 30302977,
+          "systimer_ticks": 315136344,
+          "rtc_hrt_offset_us": 26734097,
+          "system_correction_us": -24237853,
+          "since_boot_us": 32797815,
+          "actual_utc_seconds": 1792250958.845461,
+          "expected_utc_seconds": 1792250958.07766,
+          "difference_seconds": 0.7678008079528809
+        }
+      },
+      "native-offline": {
+        "passed": true,
+        "checks": {
+          "machine_still_running": true,
+          "rom_and_bootloader": true,
+          "lcd_240x240": true,
+          "lcd_has_content": true,
+          "no_panic_or_watchdog": true,
+          "application_runtime_ready": true,
+          "ap_started": true,
+          "runtime_ready_after_reset": true,
+          "no_panic_after_reset": true,
+          "reset_reboots": true,
+          "source_flash_unchanged": true,
+          "source_artifacts_unchanged": true
+        },
+        "error": null,
+        "ntp_observation": null,
+        "reset_ntp_observation": null
+      },
+      "original-diagnostic": {
+        "passed": true,
+        "checks": {
+          "machine_still_running": true,
+          "rom_and_bootloader": true,
+          "lcd_240x240": true,
+          "lcd_has_content": true,
+          "no_panic_or_watchdog": true,
+          "ntp_reply_sent": true,
+          "guest_clock_set_by_sntp": true,
+          "clock_recovered_after_reset": true,
+          "no_panic_after_reset": true,
+          "reset_reboots": true,
+          "source_flash_unchanged": true,
+          "source_artifacts_unchanged": true
+        },
+        "error": null,
+        "ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 1,
+          "server_epoch": 1792251009,
+          "sent_virtual_us": 7890713,
+          "boot_time_us": 1792251001803712,
+          "virtual_us": 29191190,
+          "systimer_ticks": 303581811,
+          "rtc_hrt_offset_us": 65512,
+          "system_correction_us": -59391,
+          "since_boot_us": 29196679,
+          "actual_utc_seconds": 1792251031.000391,
+          "expected_utc_seconds": 1792251030.300477,
+          "difference_seconds": 0.6999139785766602
+        },
+        "reset_ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 2,
+          "server_epoch": 1792251037,
+          "sent_virtual_us": 33059886,
+          "boot_time_us": 1792251001236964,
+          "virtual_us": 36357767,
+          "systimer_ticks": 378112578,
+          "rtc_hrt_offset_us": 32278153,
+          "system_correction_us": -29264997,
+          "since_boot_us": 39370134,
+          "actual_utc_seconds": 1792251040.607098,
+          "expected_utc_seconds": 1792251040.297881,
+          "difference_seconds": 0.3092172145843506
+        }
+      },
+      "debug-diagnostic": {
+        "passed": true,
+        "checks": {
+          "machine_still_running": true,
+          "rom_and_bootloader": true,
+          "lcd_240x240": true,
+          "lcd_has_content": true,
+          "no_panic_or_watchdog": true,
+          "application_runtime_ready": true,
+          "animation_updates": true,
+          "ntp_reply_sent": true,
+          "guest_clock_set_by_sntp": true,
+          "wifi_associated": true,
+          "station_dhcp": true,
+          "sntp_notification_received": true,
+          "clock_recovered_after_reset": true,
+          "runtime_ready_after_reset": true,
+          "no_panic_after_reset": true,
+          "reset_reboots": true,
+          "source_flash_unchanged": true,
+          "source_artifacts_unchanged": true
+        },
+        "error": null,
+        "ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 1,
+          "server_epoch": 1792251053,
+          "sent_virtual_us": 6822394,
+          "boot_time_us": 1792251046178537,
+          "virtual_us": 20436345,
+          "systimer_ticks": 212528848,
+          "rtc_hrt_offset_us": 79642,
+          "system_correction_us": -72004,
+          "since_boot_us": 20443104,
+          "actual_utc_seconds": 1792251066.621641,
+          "expected_utc_seconds": 1792251066.613951,
+          "difference_seconds": 0.007689952850341797
+        },
+        "reset_ntp_observation": {
+          "method": "model_response_timestamp",
+          "response_count": 2,
+          "server_epoch": 1792251078,
+          "sent_virtual_us": 24666946,
+          "boot_time_us": 1792251051926988,
+          "virtual_us": 26360356,
+          "systimer_ticks": 274136395,
+          "rtc_hrt_offset_us": 22627069,
+          "system_correction_us": -20514188,
+          "since_boot_us": 28472149,
+          "actual_utc_seconds": 1792251080.399137,
+          "expected_utc_seconds": 1792251079.69341,
+          "difference_seconds": 0.7057271003723145
+        }
+      }
+    }
+  },
+  "modes": {
+    "off": {
+      "packets": {
+        "passed": true,
+        "tests": 12,
+        "failures": [],
+        "errors": [],
+        "qemu_sha256": "0b3f6f69c28be627faf8b68135435728a4648a417f07016bb576c872e41616e6",
+        "expected_debug_logging": "off",
+        "scope": "QOM validation/reset and real DNS/NTP packets through Wi-Fi DMA; qtest executes no guest instructions, no firmware or Internet."
+      },
+      "modules": {
+        "passed": true,
+        "checks": {
+          "profile_validation": {
+            "unsupported_bus": true,
+            "flash_gpio": true,
+            "conflicting_pins": true,
+            "always_selected_shared_bus": true,
+            "duplicate_id": true
+          },
+          "c2_shared_spi": {
+            "lcd_sd_transfer": true,
+            "topology": "shared_bus",
+            "lcd_pixels": true,
+            "sd_sector_write_read": true,
+            "cs_isolation": true,
+            "wrong_sck_blocked": true,
+            "wrong_miso_blocked": true,
+            "sd_snapshot_unchanged": true
+          },
+          "c3_shared_spi": {
+            "lcd_sd_transfer": true,
+            "topology": "shared_bus",
+            "lcd_pixels": true,
+            "sd_sector_write_read": true,
+            "cs_isolation": true,
+            "wrong_sck_blocked": true,
+            "wrong_miso_blocked": true,
+            "sd_snapshot_unchanged": true
+          },
+          "esp32_dual_spi": {
+            "lcd_sd_transfer": true,
+            "topology": "two_hosts",
+            "lcd_pixels": true,
+            "sd_sector_write_read": true,
+            "cs_isolation": true,
+            "wrong_sck_blocked": true,
+            "wrong_miso_blocked": true,
+            "sd_snapshot_unchanged": true
+          },
+          "c2_i2c": {
+            "alternate_gpio_oled": true,
+            "wrong_scl_nack": true
+          },
+          "c3_i2c": {
+            "alternate_gpio_oled": true,
+            "wrong_scl_nack": true
+          },
+          "legacy_cyd_mmio": {
+            "legacy_flags": true,
+            "lcd_pixels": true,
+            "sd_sector_write_read": true,
+            "sd_idle_high": true,
+            "snapshot_unchanged": true
+          }
+        },
+        "qemu_sha256": {
+          "riscv32": "0b3f6f69c28be627faf8b68135435728a4648a417f07016bb576c872e41616e6",
+          "xtensa": "f6a5f29315d1bea5c99b74890a99c86c70886fdc0d50f24f62c24cdda43abc35"
+        }
+      },
+      "legacy_boot": {
+        "cyd": {
+          "passed": true,
+          "checks": {
+            "running": true,
+            "console_has_content": true,
+            "display_dimensions": true,
+            "no_panic_or_watchdog": true,
+            "source_flash_unchanged": true,
+            "source_artifacts_unchanged": true
+          },
+          "hardware_profile": null,
+          "machine": "esp32,st7789=on,sdspi=on",
+          "duration_seconds": 25,
+          "qemu_sha256": "f6a5f29315d1bea5c99b74890a99c86c70886fdc0d50f24f62c24cdda43abc35",
+          "firmware_sources": {
+            "flash.bin": "1050294c50955df7a4b09e5a44950601b1da11a299b3aea6a30031353103b8a8"
+          },
+          "pixel_sha256": "4afa1d8c3cb4023eef448bc04e36e1ae6b4568da007c43777935b32a1ea995d7",
+          "nonzero_bytes": 42240,
+          "lcd_area_nonzero_bytes": 0,
+          "cyd_boot_scope": "Boot, console and panic checks; LCD transactions are verified separately by QTest"
+        },
+        "c3_oled": {
+          "passed": true,
+          "checks": {
+            "running": true,
+            "console_has_content": true,
+            "display_dimensions": true,
+            "no_panic_or_watchdog": true,
+            "source_flash_unchanged": true,
+            "source_artifacts_unchanged": true
+          },
+          "hardware_profile": null,
+          "machine": "esp32c3",
+          "duration_seconds": 25,
+          "qemu_sha256": "0b3f6f69c28be627faf8b68135435728a4648a417f07016bb576c872e41616e6",
+          "firmware_sources": {
+            "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+          },
+          "pixel_sha256": "e1700979728aa0372a5aad7055bd671af33ee2714dd3889347cdb91623cbcca3",
+          "nonzero_bytes": 44160,
+          "lcd_area_nonzero_bytes": 44160,
+          "cyd_boot_scope": null
+        },
+        "c3_modular": {
+          "passed": true,
+          "checks": {
+            "running": true,
+            "console_has_content": true,
+            "display_dimensions": true,
+            "no_panic_or_watchdog": true,
+            "source_flash_unchanged": true,
+            "source_artifacts_unchanged": true
+          },
+          "hardware_profile": {
+            "schema": 1,
+            "name": "c3-oled",
+            "soc": "esp32c3",
+            "machine": "esp32c3,default-peripherals=off",
+            "arguments": [
+              "-device",
+              "{\"driver\":\"esp-i2c-module\",\"id\":\"oled\",\"bus\":\"/i2c0/i2c\",\"gpio\":\"/machine/gpio\",\"address\":60,\"model\":\"ssd1306\",\"scl\":6,\"sda\":5,\"properties\":\"{\\\"visible-width\\\":72,\\\"visible-height\\\":40,\\\"column-offset\\\":28,\\\"magnify\\\":4}\"}"
+            ],
+            "sd_images": [],
+            "profile": "C:\\Work\\QEMU-ESP32\\configs\\boards\\c3-oled.json",
+            "network": {
+              "station_ssid": "yoRadio-QEMU",
+              "urls": [],
+              "ntp_hosts": []
+            },
+            "network_arguments": [],
+            "service_urls": []
+          },
+          "machine": "esp32c3",
+          "duration_seconds": 25,
+          "qemu_sha256": "0b3f6f69c28be627faf8b68135435728a4648a417f07016bb576c872e41616e6",
+          "firmware_sources": {
+            "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+          },
+          "pixel_sha256": "e1700979728aa0372a5aad7055bd671af33ee2714dd3889347cdb91623cbcca3",
+          "nonzero_bytes": 44160,
+          "lcd_area_nonzero_bytes": 44160,
+          "cyd_boot_scope": null
+        },
+        "passed": true
+      }
+    },
+    "on": {
+      "packets": {
+        "passed": true,
+        "tests": 12,
+        "failures": [],
+        "errors": [],
+        "qemu_sha256": "f3d7b0243606e21c12e0b57e3cb084524a577cc732bf24f0fc055f35bc08fdc5",
+        "expected_debug_logging": "on",
+        "scope": "QOM validation/reset and real DNS/NTP packets through Wi-Fi DMA; qtest executes no guest instructions, no firmware or Internet."
+      },
+      "modules": {
+        "passed": true,
+        "checks": {
+          "profile_validation": {
+            "unsupported_bus": true,
+            "flash_gpio": true,
+            "conflicting_pins": true,
+            "always_selected_shared_bus": true,
+            "duplicate_id": true
+          },
+          "c2_shared_spi": {
+            "lcd_sd_transfer": true,
+            "topology": "shared_bus",
+            "lcd_pixels": true,
+            "sd_sector_write_read": true,
+            "cs_isolation": true,
+            "wrong_sck_blocked": true,
+            "wrong_miso_blocked": true,
+            "sd_snapshot_unchanged": true
+          },
+          "c3_shared_spi": {
+            "lcd_sd_transfer": true,
+            "topology": "shared_bus",
+            "lcd_pixels": true,
+            "sd_sector_write_read": true,
+            "cs_isolation": true,
+            "wrong_sck_blocked": true,
+            "wrong_miso_blocked": true,
+            "sd_snapshot_unchanged": true
+          },
+          "esp32_dual_spi": {
+            "lcd_sd_transfer": true,
+            "topology": "two_hosts",
+            "lcd_pixels": true,
+            "sd_sector_write_read": true,
+            "cs_isolation": true,
+            "wrong_sck_blocked": true,
+            "wrong_miso_blocked": true,
+            "sd_snapshot_unchanged": true
+          },
+          "c2_i2c": {
+            "alternate_gpio_oled": true,
+            "wrong_scl_nack": true
+          },
+          "c3_i2c": {
+            "alternate_gpio_oled": true,
+            "wrong_scl_nack": true
+          },
+          "legacy_cyd_mmio": {
+            "legacy_flags": true,
+            "lcd_pixels": true,
+            "sd_sector_write_read": true,
+            "sd_idle_high": true,
+            "snapshot_unchanged": true
+          }
+        },
+        "qemu_sha256": {
+          "riscv32": "f3d7b0243606e21c12e0b57e3cb084524a577cc732bf24f0fc055f35bc08fdc5",
+          "xtensa": "f6a5f29315d1bea5c99b74890a99c86c70886fdc0d50f24f62c24cdda43abc35"
+        }
+      },
+      "legacy_boot": {
+        "cyd": {
+          "passed": true,
+          "checks": {
+            "running": true,
+            "console_has_content": true,
+            "display_dimensions": true,
+            "no_panic_or_watchdog": true,
+            "source_flash_unchanged": true,
+            "source_artifacts_unchanged": true
+          },
+          "hardware_profile": null,
+          "machine": "esp32,st7789=on,sdspi=on",
+          "duration_seconds": 25,
+          "qemu_sha256": "f6a5f29315d1bea5c99b74890a99c86c70886fdc0d50f24f62c24cdda43abc35",
+          "firmware_sources": {
+            "flash.bin": "1050294c50955df7a4b09e5a44950601b1da11a299b3aea6a30031353103b8a8"
+          },
+          "pixel_sha256": "4afa1d8c3cb4023eef448bc04e36e1ae6b4568da007c43777935b32a1ea995d7",
+          "nonzero_bytes": 42240,
+          "lcd_area_nonzero_bytes": 0,
+          "cyd_boot_scope": "Boot, console and panic checks; LCD transactions are verified separately by QTest"
+        },
+        "c3_oled": {
+          "passed": true,
+          "checks": {
+            "running": true,
+            "console_has_content": true,
+            "display_dimensions": true,
+            "no_panic_or_watchdog": true,
+            "source_flash_unchanged": true,
+            "source_artifacts_unchanged": true
+          },
+          "hardware_profile": null,
+          "machine": "esp32c3",
+          "duration_seconds": 25,
+          "qemu_sha256": "f3d7b0243606e21c12e0b57e3cb084524a577cc732bf24f0fc055f35bc08fdc5",
+          "firmware_sources": {
+            "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+          },
+          "pixel_sha256": "e1700979728aa0372a5aad7055bd671af33ee2714dd3889347cdb91623cbcca3",
+          "nonzero_bytes": 44160,
+          "lcd_area_nonzero_bytes": 44160,
+          "cyd_boot_scope": null
+        },
+        "c3_modular": {
+          "passed": true,
+          "checks": {
+            "running": true,
+            "console_has_content": true,
+            "display_dimensions": true,
+            "no_panic_or_watchdog": true,
+            "source_flash_unchanged": true,
+            "source_artifacts_unchanged": true
+          },
+          "hardware_profile": {
+            "schema": 1,
+            "name": "c3-oled",
+            "soc": "esp32c3",
+            "machine": "esp32c3,default-peripherals=off",
+            "arguments": [
+              "-device",
+              "{\"driver\":\"esp-i2c-module\",\"id\":\"oled\",\"bus\":\"/i2c0/i2c\",\"gpio\":\"/machine/gpio\",\"address\":60,\"model\":\"ssd1306\",\"scl\":6,\"sda\":5,\"properties\":\"{\\\"visible-width\\\":72,\\\"visible-height\\\":40,\\\"column-offset\\\":28,\\\"magnify\\\":4}\"}"
+            ],
+            "sd_images": [],
+            "profile": "C:\\Work\\QEMU-ESP32\\configs\\boards\\c3-oled.json",
+            "network": {
+              "station_ssid": "yoRadio-QEMU",
+              "urls": [],
+              "ntp_hosts": []
+            },
+            "network_arguments": [],
+            "service_urls": []
+          },
+          "machine": "esp32c3",
+          "duration_seconds": 25,
+          "qemu_sha256": "f3d7b0243606e21c12e0b57e3cb084524a577cc732bf24f0fc055f35bc08fdc5",
+          "firmware_sources": {
+            "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+          },
+          "pixel_sha256": "e1700979728aa0372a5aad7055bd671af33ee2714dd3889347cdb91623cbcca3",
+          "nonzero_bytes": 44160,
+          "lcd_area_nonzero_bytes": 44160,
+          "cyd_boot_scope": null
+        },
+        "passed": true
+      }
+    }
+  }
+}

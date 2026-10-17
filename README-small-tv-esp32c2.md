@@ -173,7 +173,8 @@ the simulated UART; no serial device or physical board is accessed.
 
 This runs both firmware images for 30 seconds each, captures the LCD, checks for
 panics/watchdogs, resets each VM and verifies a second boot. The reconstruction
-also must complete `app_main` and update its animation. In `clock` mode it must
+also must render its application and update its animation. Its Wi-Fi/SNTP flags
+are read from real RAM objects located in the matching application ELF. In `clock` mode it must
 associate and obtain `10.0.2.15`; both images must receive an NTP reply and store
 its timestamp in the RTC boot-time offset. `-Network offline` checks the earlier
 AP startup path instead.
@@ -454,3 +455,61 @@ Small TV firmware has its own independent `DEBUG` CMake option and
 `build.ps1 -DebugLogging`; refer to its source README. Its debug images have a
 separate archive variant. Changing emulator verbosity never changes firmware
 logging or writes firmware settings.
+
+
+### Boot checks without diagnostic output
+
+The ordinary firmware omits INFO/DEBUG output, so the boot test observes the
+actual `connected`, `ap_active`, `last_station_address` and `time_synced` objects,
+plus the SDK's two signed 64-bit timekeeping corrections.
+`tools/esp_elf.py` converts bounded ELF32 RISC-V symbol tables; it is a separate
+format module. The application header's full ELF SHA-256 must match before any
+VM starts. Only named objects with the expected scalar sizes in C2 RAM are read,
+through read-only QMP `xp` commands. No guest function, PC or RAM is changed.
+The default ELF is `yoRadio/.build/small-tv-esp32c2/small_tv_reconstructed.elf`;
+use `-AppElf` (Python `--app-elf`) for a different matching build. The factory
+boot checks retain their original ROM/LCD/RTC checks and require no native ELF.
+
+The shared C2/C3 Wi-Fi model exposes read-only `last-ntp-reply` as a JSON string
+with `count`, `unix_seconds` and `virtual_us`. The model records these three
+fixed-size scalars only when it generates a valid NTP reply, before RX queuing.
+Dropped/malformed requests do not update the snapshot; a guest reset retains
+this external-service observation. JSON formatting occurs only on QMP reads,
+independently of `esp_debug`. No packet content or credentials are retained.
+
+Both boot tests reconstruct SDK UTC from RTC STORE2/3, the guest's own latched
+UNIT0 ticks (`ticks * 5 / 52` on C2/26 MHz), `s_microseconds_offset` and
+`s_correction_us`. They compare it with `unix_seconds + (now_us - sent_us)/1e6`,
+within one second, before and after reset; reset must generate a newer reply.
+The signed SDK corrections account for its reset-relative timer origin. Treating
+RTC STORE2/3 as an offset from QEMU lifetime time is incorrect after reset.
+Comparing later host wall time is also invalid under `icount`, whose virtual
+seconds can lag the host during display work. The observer briefly stops and
+continues its VM for a coherent read, without latching or writing guest registers.
+
+Factory offsets are bound to capture SHA-256
+`5321a6b9016a8fc8335958193b4ab182e0d9ea85cfc3363063f120080c1844f4`:
+`esp_time_impl_get_time_since_boot` at `0x420b288c` adds `[0x3fcc3980]`;
+`esp_system_get_time` at `0x403802da` adds `[0x3fcc3888]`. The corresponding
+RV32 loads/64-bit additions match the SDK source and native disassembly.
+A different factory dump is rejected until its own layout is established.
+Older diagnostic QEMU builds can supply the same exact timestamp through their
+event log. Silent builds predating this property must be rebuilt; a loose date
+range or a sync flag alone is not an accepted clock measurement.
+
+`tests/esp_elf_test.py` checks malformed tables, ambiguous/missing objects,
+ELF/application mismatch, memory bounds, scalar ABI and read-only observations.
+The Wi-Fi DMA suite also checks packet/snapshot equality, read-only access,
+drop/malformed handling, monotonic counters and snapshot retention after reset,
+with diagnostics either disabled or enabled.
+
+
+Scoped validation on 2026-10-17 is recorded in
+[`docs/esp-quiet-boot-validation-20261017.json`](docs/esp-quiet-boot-validation-20261017.json):
+12 ELF/clock unit tests, 29 invalid-report rejection controls, six actual Small TV
+boot/reset flows, 12 DMA/network cases in each diagnostic mode, modular SPI/I2C
+checks in each mode, and unchanged CYD/C3 OLED image boot checks in each mode.
+The quiet and diagnostic executable SHA-256 values are `0b3f6f69...616e6` and
+`f3d7b024...8fdc5`. The two previously rejected host-wall/RTC-only measurements
+were test-observation errors; neither was relabeled as a passing firmware run.
+These scoped results do not replace full firmware parity or a 24-hour soak.

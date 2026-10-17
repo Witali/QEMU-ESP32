@@ -153,8 +153,13 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         stl_be_p(payload + 40, seconds);
         stl_be_p(payload + 44, fraction);
         payload_len = 48;
+        /* Keep the wire timestamp observable with printf compiled out. The
+         * clock must be compared in virtual time, not later host wall time. */
+        s->ntp_reply_unix_seconds = unix_seconds;
+        s->ntp_reply_virtual_us = qemu_clock_get_us(QEMU_CLOCK_VIRTUAL);
+        s->ntp_reply_count++;
         ESP_CLOCK_DEBUG("C2 NTP reply unix_seconds=%" PRId64 " virtual_us=%" PRId64 "\n",
-                unix_seconds, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+                unix_seconds, s->ntp_reply_virtual_us);
         ESP_CLOCK_DEBUG("C2 NTP response server=%u\n", server);
     } else if (port == 53) {
         char name[254];

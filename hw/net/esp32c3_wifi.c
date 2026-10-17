@@ -490,6 +490,17 @@ static void wifi_set_station_ap_online(Object *obj, bool value, Error **errp)
     Esp32_WLAN_set_station_ap_online(ESP32C3_WIFI(obj), value);
 }
 
+static char *wifi_get_ntp_reply(Object *obj, Error **errp)
+{
+    /* Format numeric service state only when explicitly requested by QMP.
+     * This is the same pre-queue timestamp as the optional NTP diagnostic. */
+    Esp32C3WifiState *s = ESP32C3_WIFI(obj);
+    return g_strdup_printf("{\"count\":%" PRIu64 ",\"unix_seconds\":%" PRId64
+                           ",\"virtual_us\":%" PRId64 "}",
+                           s->ntp_reply_count, s->ntp_reply_unix_seconds,
+                           s->ntp_reply_virtual_us);
+}
+
 static bool wifi_get_debug_logging(Object *obj, Error **errp)
 {
     /* Expose build capability without enabling logging or changing the guest. */
@@ -505,6 +516,7 @@ static void esp32c3_wifi_init(Object *obj)
     Esp32C3WifiState *s = ESP32C3_WIFI(obj);
 
     object_property_add_bool(obj, "debug-logging", wifi_get_debug_logging, NULL);
+    object_property_add_str(obj, "last-ntp-reply", wifi_get_ntp_reply, NULL);
     s->ntp_unix_seconds = -1;
     s->station_ap_online = true;
     s->station_ssid = g_strdup("QEMU");

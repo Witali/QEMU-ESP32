@@ -310,8 +310,119 @@ def read_guest_clock(state):
         elapsed, = words(qmp, 0x6004d000, 1)
     return ((high << 32) | low) / 1e6 + elapsed / 1e6
 
+def application_state_layout(args):
+    """Bind read-only runtime observations to the exact archived application's ELF."""
+    from esp_elf import object_symbols
+    path = Path(getattr(args, 'app_elf', '') or
+                Path(args.yoradio) / '.build/small-tv-esp32c2/small_tv_reconstructed.elf')
+    app = Path(args.yoradio) / 'firmware/development/small-tv-esp32c2-reconstructed/app.bin'
+    data = path.read_bytes()
+    elf_sha = digest(data)
+    if app.read_bytes()[176:208] != bytes.fromhex(elf_sha):
+        raise ValueError('Runtime observation ELF does not match archived app.bin')
+    sizes = {'connected': 1, 'ap_active': 1, 'last_station_address': 4, 'time_synced': 1,
+             's_microseconds_offset': 8, 's_correction_us': 8}
+    symbols = object_symbols(data, sizes)
+    for name, row in symbols.items():
+        if row['size'] != sizes[name] or not 0x3fca0000 <= row['address'] < row['address'] + row['size'] <= 0x3fce0000:
+            raise ValueError('Unexpected observed C2 RAM object: ' + name)
+    return {'elf_sha256': elf_sha, 'symbols': symbols,
+            'converter_sha256': digest(Path(__file__).with_name('esp_elf.py').read_bytes()),
+            'vm_helper_sha256': digest(Path(__file__).read_bytes())}
+
+
+def application_state(qmp, layout):
+    """Read actual connection/SNTP flags and DHCP bytes without touching guest state."""
+    values = {}
+    for name in ('connected', 'ap_active', 'last_station_address', 'time_synced'):
+        row = layout['symbols'][name]
+        output = qmp.execute('human-monitor-command', **{
+            'command-line': f"xp /{row['size']}bx 0x{row['address']:x}"})
+        data = b''.join(bytes.fromhex(value) for line in output.splitlines() if ':' in line
+                        for value in re.findall(r'0x([0-9a-fA-F]{2})(?=\s|$)', line.split(':', 1)[1]))
+        if len(data) != row['size']:
+            raise ValueError('Short observed runtime read: ' + name)
+        if name == 'last_station_address':
+            values['station_address'] = '.'.join(str(value) for value in data)
+        else:
+            if data[0] not in (0, 1):
+                raise ValueError('Invalid observed atomic flag: ' + name)
+            values[name] = bool(data[0])
+    return values
+
+
+def factory_clock_layout(args):
+    """Bind stock SDK offsets to the immutable dump and verified RV32 instructions."""
+    sha = digest((Path(args.yoradio) / 'Small_TV/full-flash.bin').read_bytes())
+    if sha != '5321a6b9016a8fc8335958193b4ab182e0d9ea85cfc3363063f120080c1844f4':
+        raise ValueError('Factory timekeeping layout needs the verified capture')
+    # esp_time_impl_get_time_since_boot at 0x420b288c adds 64-bit
+    # [0x3fcc3980]; esp_system_get_time at 0x403802da adds [0x3fcc3888].
+    return {'factory_sha256': sha, 'symbols': {
+        's_microseconds_offset': {'address': 0x3fcc3980, 'size': 8},
+        's_correction_us': {'address': 0x3fcc3888, 'size': 8}}}
+
+
+def ntp_reply_observation(qmp, state, metadata_available, diagnostics, layout):
+    """Compare the real SDK RTC base with the generated packet's virtual timestamp."""
+    if metadata_available:
+        reply = json.loads(qmp.execute('qom-get', path='/machine/wifi', property='last-ntp-reply'))
+        count, epoch, sent_us = (reply[name] for name in ('count', 'unix_seconds', 'virtual_us'))
+        if any(type(value) is not int or value < 0 for value in (count, epoch, sent_us)):
+            raise ValueError('Malformed NTP service observation')
+        if not count:
+            return None
+        method = 'model_response_timestamp'
+    elif diagnostics:
+        replies = re.findall(r'C2 NTP reply unix_seconds=(\d+) virtual_us=(\d+)',
+                             (state / 'qemu.log').read_text(errors='replace'))
+        if not replies:
+            return None
+        epoch, sent_us = map(int, replies[-1])
+        count, method = len(replies), 'diagnostic_wire_timestamp'
+    else:
+        raise ValueError('Rebuild silent QEMU with read-only NTP timestamp support')
+    def words(address, count):
+        output = qmp.execute('human-monitor-command', **{'command-line': f'xp /{count}wx {address:#x}'})
+        values = [int(value, 16) for value in re.findall(r'0x([0-9a-fA-F]{8})\b', output)]
+        if len(values) != count:
+            raise ValueError('Short SDK clock observation')
+        return values
+
+    def signed_object(name):
+        low, high = words(layout['symbols'][name]['address'], 2)
+        return int.from_bytes(struct.pack('<II', low, high), 'little', signed=True)
+
+    qmp.execute('stop')
+    try:
+        low, high = words(0x60008050, 2)
+        boot_us = (high << 32) | low
+        virtual_us, = words(0x6004d000, 1)
+        high, low = words(0x60023040, 2)
+        ticks = (high << 32) | low
+        offset, correction = signed_object('s_microseconds_offset'), signed_object('s_correction_us')
+    finally:
+        qmp.execute('cont')
+    # C2 / 26 MHz: the SDK's ticks_to_us converter is ticks * 5 / 52.
+    # Read its own latched UNIT0 value; do not trigger a hardware snapshot.
+    since_boot_us = ticks * 5 // 52 + offset + correction
+    actual = (boot_us + since_boot_us) / 1e6
+    expected = epoch + (virtual_us - sent_us) / 1e6
+    return {'method': method, 'response_count': count, 'server_epoch': epoch, 'sent_virtual_us': sent_us,
+            'boot_time_us': boot_us, 'virtual_us': virtual_us, 'systimer_ticks': ticks,
+            'rtc_hrt_offset_us': offset, 'system_correction_us': correction,
+            'since_boot_us': since_boot_us, 'actual_utc_seconds': actual,
+            'expected_utc_seconds': expected, 'difference_seconds': actual - expected}
+
+
 def test_vm(args, state):
     args.display, args.persistent, args.paused = 'none', False, False
+    # Reject a wrong/missing observation ELF before starting a disposable VM.
+    layout = application_state_layout(args) if args.firmware == 'reconstructed' else None
+    clock_layout = layout or factory_clock_layout(args)
+    runtime = after_reset_runtime = None
+    diagnostics, reply_metadata = True, False
+    ntp_observation = reset_ntp_observation = None
     session, prepared = launch(args, state)
     before = digest((state / 'flash.bin').read_bytes())
     screenshots = []
@@ -334,6 +445,12 @@ def test_vm(args, state):
             registers = qmp.execute('human-monitor-command', **{'command-line': 'info registers'})
             (state / 'registers.txt').write_text(registers)
             status = qmp.execute('query-status')
+            properties = qmp.execute('qom-list', path='/machine/wifi')
+            reply_metadata = any(row['name'] == 'last-ntp-reply' for row in properties)
+            if any(row['name'] == 'debug-logging' for row in properties):
+                diagnostics = qmp.execute('qom-get', path='/machine/wifi', property='debug-logging')
+            if layout:
+                runtime = application_state(qmp, layout)
         uart = (state / 'uart.log').read_text(errors='replace')
         checks = {
             'machine_still_running': status['running'],
@@ -343,8 +460,14 @@ def test_vm(args, state):
             'no_panic_or_watchdog': not any(x in uart for x in ('Guru Meditation', 'abort() was called', 'watchdog got triggered', 'assert failed')),
         }
         if args.firmware == 'reconstructed':
-            checks['app_main_completed'] = 'Reconstructed ESP32-C2 clock started' in uart and 'Returned from app_main' in uart
-            if args.network == 'offline': checks['ap_started'] = 'DHCP server started' in uart
+            # A real rendered application plus SDK-owned network state proves
+            # readiness even when INFO and the final app_main message are absent.
+            checks['rom_and_bootloader'] = ('ESP-ROM:esp32c2' in uart and
+                'load:0x' in uart and 'entry 0x' in uart and checks['lcd_has_content'])
+            checks['application_runtime_ready'] = checks['lcd_has_content'] and (
+                runtime['connected'] if args.network == 'clock' else runtime['ap_active'])
+            if args.network == 'offline':
+                checks['ap_started'] = runtime['ap_active']
             # Offline/setup displays a static configuration page. Only the
             # synchronized clock scene must change its animation region.
             if args.network == 'clock':
@@ -353,24 +476,31 @@ def test_vm(args, state):
         clock = None
         if args.network == 'clock':
             clock = read_guest_clock(state)
-            checks['ntp_reply_sent'] = 'C2 NTP reply' in (state / 'qemu.log').read_text(errors='replace')
-            replies = re.findall(r'C2 NTP reply unix_seconds=(\d+) virtual_us=(\d+)', (state / 'qemu.log').read_text(errors='replace'))
-            if replies:
-                seconds, sent_us = map(int, replies[-1])
-                # Check the offset that SNTP actually stored against the
-                # server timestamp. Execution speed may lag real wall time.
-                expected_boot = seconds - sent_us / 1e6
-                checks['guest_clock_set_by_sntp'] = abs(read_guest_boot_time(state) - expected_boot) < 1
-            else:
-                checks['guest_clock_set_by_sntp'] = False
+            with QMP(session['qmp_port'], session['name']) as qmp:
+                ntp_observation = ntp_reply_observation(qmp, state, reply_metadata, diagnostics, clock_layout)
+            checks['ntp_reply_sent'] = ntp_observation is not None
+            checks['guest_clock_set_by_sntp'] = (ntp_observation is not None and
+                abs(ntp_observation['difference_seconds']) < 1)
             if args.firmware == 'reconstructed':
-                checks['wifi_associated'] = 'connected with yoRadio-QEMU' in uart
-                checks['station_dhcp'] = 'sta ip: 10.0.2.15' in uart
+                checks['wifi_associated'] = runtime['connected']
+                checks['station_dhcp'] = runtime['station_address'] == '10.0.2.15'
+                checks['sntp_notification_received'] = runtime['time_synced']
         # Reset the VM and verify the guest can boot and draw a second time.
         with QMP(session['qmp_port'], session['name']) as qmp: qmp.execute('system_reset')
         time.sleep(8)
         with QMP(session['qmp_port'], session['name']) as qmp:
             qmp.execute('screendump', filename=str(state / 'after-reset.ppm'))
+            if args.network == 'clock':
+                reset_ntp_observation = ntp_reply_observation(qmp, state, reply_metadata, diagnostics, clock_layout)
+                checks['clock_recovered_after_reset'] = (reset_ntp_observation is not None and
+                    abs(reset_ntp_observation['difference_seconds']) < 1 and
+                    ntp_observation is not None and reset_ntp_observation['response_count'] > ntp_observation['response_count'])
+            if layout:
+                after_reset_runtime = application_state(qmp, layout)
+                checks['runtime_ready_after_reset'] = (
+                    after_reset_runtime['connected'] and after_reset_runtime['time_synced'] and
+                    after_reset_runtime['station_address'] == '10.0.2.15'
+                    if args.network == 'clock' else after_reset_runtime['ap_active'])
         uart2 = (state / 'uart.log').read_text(errors='replace')
         checks['no_panic_after_reset'] = 'Guru Meditation' not in uart2 and 'assert failed' not in uart2
         checks['reset_reboots'] = uart2.count('ESP-ROM:esp32c2') >= 2 and sum(p != 0 for p in ppm_pixels(state / 'after-reset.ppm')) > 1000
@@ -393,6 +523,9 @@ def test_vm(args, state):
               'duration_seconds': args.seconds, 'network': args.network, 'guest_clock_unix': clock,
               'original_expected_screen': ('Clock with synchronized date/time' if args.network == 'clock' else 'Connecting to WiFi / Ver:0.0.2, then Small_TV / 192.168.43.1 setup instructions'),
               'prepared': prepared, 'error': error, 'qemu_sha256': digest(Path(args.qemu).read_bytes()),
+              'runtime_observation': {'layout': layout, 'before_reset': runtime, 'after_reset': after_reset_runtime},
+              'clock_layout': clock_layout, 'ntp_observation': ntp_observation, 'reset_ntp_observation': reset_ntp_observation,
+              'qemu_diagnostics_enabled': diagnostics,
               'tested_at_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
     save_json(state / 'test-report.json', report)
     return report
@@ -403,6 +536,7 @@ def main():
     parser.add_argument('--firmware', choices=['original', 'reconstructed'], default='reconstructed')
     parser.add_argument('--yoradio', default='')
     parser.add_argument('--rom-elf', default='')
+    parser.add_argument('--app-elf', default='', help='Matching native application ELF for read-only boot checks')
     parser.add_argument('--qemu', default='')
     parser.add_argument('--state', required=True)
     parser.add_argument('--display', choices=['none', 'sdl'], default='sdl')

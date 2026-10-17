@@ -192,6 +192,42 @@ class Machine:
 
 
 class WifiServicesTests(unittest.TestCase):
+    def test_readonly_ntp_reply_timestamp_without_logging(self):
+        """Generated wire epoch/counter remain observable with DEBUG compiled out."""
+        for c2 in (False, True):
+            with self.subTest(c2=c2), Machine(('clock-services=on',), c2=c2) as machine:
+                snapshot = lambda: json.loads(machine.get('last-ntp-reply'))
+                initial = snapshot()
+                self.assertEqual(initial, {'count': 0, 'unix_seconds': 0, 'virtual_us': 0})
+                with self.assertRaises(RuntimeError):
+                    machine.set('last-ntp-reply', '{}')
+                machine.associate()
+                machine.set('ntp-unix-seconds', 1781265600)
+                request = bytearray(48)
+                request[0] = 0x23
+                replies = machine.udp(123, request, 2)
+                self.assertEqual(len(replies), 1)
+                first = snapshot()
+                self.assertEqual(first['count'], 1)
+                self.assertEqual(first['unix_seconds'], struct.unpack_from('!I', replies[0], 40)[0] - 2208988800)
+                self.assertGreater(first['virtual_us'], 0)
+                now_ns = int(machine.command('clock_step 0')[0], 0)
+                self.assertLessEqual(first['virtual_us'], now_ns // 1000)
+                machine.set('ntp-drop-mask', 1)
+                self.assertEqual(machine.udp(123, request, 2), [])
+                self.assertEqual(snapshot(), first)
+                machine.set('ntp-drop-mask', 0)
+                self.assertEqual(machine.udp(123, b'\x23', 2), [])
+                self.assertEqual(snapshot(), first)
+                machine.set('ntp-unix-seconds', 1781265660)
+                self.assertEqual(len(machine.udp(123, request, 2)), 1)
+                second = snapshot()
+                self.assertEqual(second['count'], 2)
+                self.assertEqual(second['unix_seconds'], 1781265660)
+                self.assertGreater(second['virtual_us'], first['virtual_us'])
+                machine.qmp.execute('system_reset')
+                self.assertEqual(snapshot(), second)
+
     def test_compile_time_debug_logging(self):
         """The same DMA traffic works with diagnostic code compiled in or out."""
         if OPTIONS.expect_debug is None:
