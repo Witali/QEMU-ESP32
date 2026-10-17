@@ -177,6 +177,30 @@ class Machine:
 
 
 class WifiServicesTests(unittest.TestCase):
+    def test_data_frames_have_initialized_signal_strength(self):
+        """Queued frames cannot inherit RSSI from a previously freed allocation."""
+        for c2 in (False, True):
+            with self.subTest(c2=c2), Machine(('clock-services=on', 'latency-ms=100'), c2=c2) as machine:
+                machine.associate()
+                # Keep eight allocations live together: immediate delivery can
+                # reuse the valid RSSI left by an earlier management frame.
+                machine.command('clock_step 200000000')
+                machine.frames()  # Finish the delayed authentication/association replies.
+                request = bytearray(48)
+                request[0] = 0x23
+                for nonce in range(8):
+                    request[40:48] = bytes([nonce]) * 8
+                    self.assertEqual(machine.udp(123, request, 2), [])
+                machine.command('clock_step 200000000')
+                packets = [packet for packet in machine.frames() if LLC in packet]
+                self.assertEqual(len(packets), 8)
+                for packet in packets:
+                    raw = packet[0]
+                    # C2 stores signed dBm; the older C3 metadata has a 96 bias.
+                    rssi = struct.unpack('b', bytes([raw]))[0] if c2 else raw - 96
+                    self.assertGreaterEqual(rssi, -25)
+                    self.assertLessEqual(rssi, -16)
+
     def test_station_ap_shutdown_and_recovery(self):
         for c2 in (False, True):
             with self.subTest(c2=c2), Machine(('clock-services=on',), c2=c2) as machine:

@@ -79,7 +79,11 @@ void Esp32_WLAN_init_ap_frame(Esp32C3WifiState *s, mac80211_frame *frame) {
 }
 
 static mac80211_frame *new_frame(unsigned type, unsigned subtype) {
+    /* Initialize shared frame state. Data, DNS/NTP and control constructors may
+     * not supply RSSI; never let a reused heap allocation select its value.
+     * Beacon and management constructors can override this virtual AP level. */
     mac80211_frame *frame = (mac80211_frame *)malloc(sizeof(mac80211_frame));
+    frame->signal_strength = -25;
     frame->next_frame = NULL;
     frame->frame_control.protocol_version = 0;
     frame->frame_control.type = type;
