@@ -117,6 +117,7 @@ static void esp32c3_wifi_complete_tx(Esp32C3WifiState *s, int slot,
                                     desc.length);
         if (result == MEMTX_OK) {
             frame.frame_length = desc.length;
+            esp32_wifi_trace_packet(s, &frame, "tx", desc_addr, desc.next);
             Esp32_WLAN_handle_frame(s, &frame);
             s->tx_done |= 1u << (slot + (s->c2_layout ? 16 : 0));
         } else {

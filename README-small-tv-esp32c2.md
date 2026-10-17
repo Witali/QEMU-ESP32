@@ -385,3 +385,13 @@ could hide the issue by reusing an earlier valid management-frame allocation.
 This definite metadata fix alone is not proof that every observed TCP retry
 or HTTP latency outlier has been eliminated; compare identical quiet workloads
 and retain the end-to-end firmware latency checks.
+
+
+For timing-sensitive failures, enable only `esp32c3_wifi_syn_stage` and
+`esp32c3_wifi_rx_drop`. The sparse SYN event records receive enqueue/DMA and
+guest transmit before dispatch, with IRQ state and an approximate CPU
+translation-block PC. It also reports the 802.11 type/subtype, so a missing
+SYN-ACK can be distinguished from a different frame-dispatch path. The PC is
+not an exact instruction sample. Use the ordinary packet/MMIO events separately:
+frequent synchronous log writes can change host I/O scheduling enough to hide
+a timing-sensitive failure.
