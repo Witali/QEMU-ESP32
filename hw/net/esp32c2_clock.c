@@ -7,6 +7,13 @@
 #include "hw/net/esp32c3_wifi.h"
 #include "hw/net/esp32c3_wifi_frame.h"
 
+/* Compile away diagnostics and their clock/formatting arguments in release. */
+#ifdef CONFIG_ESP_DEBUG
+#define ESP_CLOCK_DEBUG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define ESP_CLOCK_DEBUG(...) ((void)0)
+#endif
+
 static uint16_t ip_checksum(const uint8_t *p, size_t len)
 {
     uint32_t sum = 0;
@@ -115,10 +122,10 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
             default: return false;
             }
         }
-        fprintf(stderr, "C2 NTP request server=%u virtual_us=%" PRId64 "\n",
+        ESP_CLOCK_DEBUG("C2 NTP request server=%u virtual_us=%" PRId64 "\n",
                 server, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
         if (s->ntp_drop_mask & (1u << (server - 1))) {
-            fprintf(stderr, "C2 NTP drop server=%u\n", server);
+            ESP_CLOCK_DEBUG("C2 NTP drop server=%u\n", server);
             return true;
         }
         if (s->ntp_unix_seconds >= 0) {
@@ -146,9 +153,9 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         stl_be_p(payload + 40, seconds);
         stl_be_p(payload + 44, fraction);
         payload_len = 48;
-        fprintf(stderr, "C2 NTP reply unix_seconds=%" PRId64 " virtual_us=%" PRId64 "\n",
+        ESP_CLOCK_DEBUG("C2 NTP reply unix_seconds=%" PRId64 " virtual_us=%" PRId64 "\n",
                 unix_seconds, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
-        fprintf(stderr, "C2 NTP response server=%u\n", server);
+        ESP_CLOCK_DEBUG("C2 NTP response server=%u\n", server);
     } else if (port == 53) {
         char name[254];
         size_t pos = 12, used = 0;
@@ -189,7 +196,7 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
         if (answer) {
             /* Log only the known service class, never a requested hostname or key. */
             /* Retain the old diagnostic only for callers using its legacy flag. */
-            fprintf(stderr, "C2 DNS answer service=%s\n", service >= 0 ?
+            ESP_CLOCK_DEBUG("C2 DNS answer service=%s\n", service >= 0 ?
                     (s->weather_services ? "weather" : "http") : "ntp");
             uint8_t *a = payload + payload_len;
             stw_be_p(a, 0xc00c); stw_be_p(a + 2, 1); stw_be_p(a + 4, 1);

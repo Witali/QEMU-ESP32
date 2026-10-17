@@ -414,3 +414,43 @@ boot fixtures pass on the candidate. The identical quiet five-route Small TV
 workload previously reached 6.187 virtual seconds; with finite dequeue timing,
 180 requests completed with a maximum of 0.238274 seconds. These scoped results
 do not replace the complete factory/reconstructed firmware regression suite.
+
+
+### Compile-time diagnostic logging
+
+The Windows installers default to `esp_debug=false`. This removes the ESP Wi-Fi
+packet formatter module, RX drop/register traces and C2 DNS/NTP diagnostic
+printing. Disabled diagnostic arguments (including virtual-time reads and
+formatting) are not evaluated. Guest-error reporting remains available through
+the normal QEMU logging controls. Legacy raw frame dumps remain disabled in both
+modes; enabling diagnostics does not enable logging HTTP bodies or credentials.
+
+```powershell
+# Ordinary build, with ESP diagnostics compiled out:
+./setup-qemu-esp32c2-windows.ps1
+# Compile diagnostic capability and DNS/NTP event messages:
+./setup-qemu-esp32c2-windows.ps1 -DebugLogging
+```
+
+The shared C3 installer accepts the same switch. An existing build directory is
+reconfigured in either direction; the installed cache marker includes the mode.
+`-SkipBuild` rejects a different configured mode. PowerShell's common `-Debug`
+parameter is unrelated; use `-DebugLogging`. Direct Meson/configure users set
+`-Desp_debug=true` or `-Desp_debug=false`. This option is independent of Meson's
+`debug` option for compiler symbols and does not change assertions, optimization
+or the network/device model.
+
+The read-only QOM property `/machine/wifi.debug-logging` reports the compiled
+capability. Packet events still require a runtime selection such as
+`-d trace:esp32c3_wifi* -D wifi-admission.log` in a diagnostic build. In a release
+build those event names cannot re-enable code that was excluded at compilation.
+The existing extended firmware transport suite parses C2 DNS/NTP event messages
+and therefore needs a diagnostic QEMU build. Release behavior is checked using
+actual DMA packets, HTTP responses, guest clock and LCD state rather than log
+presence. The Wi-Fi packet test accepts `--expect-debug off` or `on` and verifies
+identical real DNS/NTP replies, read-only capability and absent/present traces.
+
+Small TV firmware has its own independent `DEBUG` CMake option and
+`build.ps1 -DebugLogging`; refer to its source README. Its debug images have a
+separate archive variant. Changing emulator verbosity never changes firmware
+logging or writes firmware settings.

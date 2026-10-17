@@ -29,13 +29,13 @@ def free_port():
 
 
 class Machine:
-    def __init__(self, properties=(), c2=False):
+    def __init__(self, properties=(), c2=False, trace=False):
         shift = 0x20000 if c2 else 0
         self.wifi = 0x60047000 if c2 else WIFI
         self.tx_desc, self.tx_data = TX_DESC + shift, TX_DATA + shift
         self.rx_desc, self.rx_data = RX_DESC + shift, RX_DATA + shift
         self.tx_register, self.rx_register = (0xce8, 0x68) if c2 else (0xd08, 0x88)
-        self.temp = tempfile.TemporaryDirectory(prefix='esp-wifi-services-')
+        self.temp = tempfile.TemporaryDirectory(prefix='esp-wifi-services-', dir=OPTIONS.temp_root)
         self.folder = Path(self.temp.name)
         self.qmp = self.sock = self.stream = self.proc = None
         self.log = (self.folder / 'qemu.log').open('wb')
@@ -55,6 +55,9 @@ class Machine:
                    '-qmp', f'tcp:127.0.0.1:{qmp_port},server=on,wait=off',
                    '-qtest', f'tcp:127.0.0.1:{test_port},server=on,wait=off',
                    '-qtest-log', str(self.folder / 'qtest.log')]
+        if trace:
+            command += ['-trace', 'enable=esp32c3_wifi_packet_stage',
+                        '-trace', 'enable=esp32c3_wifi_rx_state']
         for prop in ('latency-ms=0', 'jitter-ms=0', 'bandwidth-bps=0', *properties):
             command += ['-global', 'esp32c3-wifi.' + prop]
         try:
@@ -86,11 +89,23 @@ class Machine:
             self.stream.close()
         if self.sock:
             self.sock.close()
-        if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+        if self.proc:
+            if self.proc.poll() is None:
+                self.proc.terminate()
             self.proc.wait(timeout=5)
         self.log.close()
-        self.temp.cleanup()
+        # Windows can retain file locks briefly after a failed startup. Only
+        # this test's verified temporary child may be recursively removed.
+        if self.folder.resolve().parent != OPTIONS.temp_root.resolve():
+            raise ValueError('Temporary test directory escaped its workspace')
+        for attempt in range(20):
+            try:
+                self.temp.cleanup()
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(.05)
 
     def __enter__(self):
         return self
@@ -177,6 +192,26 @@ class Machine:
 
 
 class WifiServicesTests(unittest.TestCase):
+    def test_compile_time_debug_logging(self):
+        """The same DMA traffic works with diagnostic code compiled in or out."""
+        if OPTIONS.expect_debug is None:
+            self.skipTest('Pass --expect-debug on/off to check the selected build')
+        enabled = OPTIONS.expect_debug == 'on'
+        with Machine(('clock-services=on', 'ntp-hosts=time.fixture.test'), c2=True, trace=True) as machine:
+            self.assertIs(machine.get('debug-logging'), enabled)
+            with self.assertRaises(RuntimeError):
+                machine.set('debug-logging', not enabled)
+            machine.associate()
+            self.assertTrue(machine.dns('time.fixture.test'))
+            request = bytearray(48)
+            request[0] = 0x23
+            self.assertEqual(len(machine.udp(123, request, 2)), 1)
+            machine.log.flush()
+            text = (machine.folder / 'qemu.log').read_text(errors='replace')
+            for marker in ('C2 NTP reply', 'C2 DNS answer service=ntp',
+                           'esp32c3_wifi_packet_stage', 'esp32c3_wifi_rx_state'):
+                self.assertEqual(marker in text, enabled, marker)
+
     def test_c2_backlog_preserves_finite_receive_bandwidth(self):
         """DMA rearming cannot collapse queued packets into a zero-time burst."""
         with Machine(('clock-services=on', 'bandwidth-bps=8000000'), c2=True) as machine:
@@ -396,14 +431,18 @@ def main():
     global OPTIONS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--qemu', required=True)
+    parser.add_argument('--expect-debug', choices=('on', 'off'))
     parser.add_argument('--bios', required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--temp-root', type=Path, default=Path(__file__).resolve().parents[1] / '.cache/esp-boards/wifi-tests')
     OPTIONS = parser.parse_args()
+    OPTIONS.temp_root.mkdir(parents=True, exist_ok=True)
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(WifiServicesTests))
     report = {'passed': result.wasSuccessful(), 'tests': result.testsRun,
               'failures': [str(case) for case, _ in result.failures],
               'errors': [str(case) for case, _ in result.errors],
               'qemu_sha256': hashlib.sha256(Path(OPTIONS.qemu).read_bytes()).hexdigest(),
+              'expected_debug_logging': OPTIONS.expect_debug,
               'scope': 'QOM validation/reset and real DNS/NTP packets through Wi-Fi DMA; qtest executes no guest instructions, no firmware or Internet.'}
     OPTIONS.output.parent.mkdir(parents=True, exist_ok=True)
     OPTIONS.output.write_text(json.dumps(report, indent=2) + '\n')

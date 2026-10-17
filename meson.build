@@ -2438,6 +2438,7 @@ config_host_data.set('CONFIG_GCOV', get_option('b_coverage'))
 config_host_data.set('CONFIG_LIBUDEV', libudev.found())
 config_host_data.set('CONFIG_LINUX', host_os == 'linux')
 config_host_data.set('CONFIG_POSIX', host_os != 'windows')
+config_host_data.set('CONFIG_ESP_DEBUG', get_option('esp_debug'))
 config_host_data.set('CONFIG_WIN32', host_os == 'windows')
 config_host_data.set('CONFIG_LZO', lzo.found())
 config_host_data.set('CONFIG_MPATH', mpathpersist.found())
@@ -4567,6 +4568,7 @@ if 'objc' in all_languages
 else
   summary_info += {'Objective-C compiler': false}
 endif
+summary_info += {'ESP diagnostic logging': get_option('esp_debug')}
 summary_info += {'Rust support':      have_rust}
 if have_rust
   summary_info += {'Rust target':     config_host['RUST_TARGET_TRIPLE']}

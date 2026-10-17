@@ -85,6 +85,8 @@ option('tcg', type: 'feature', value: 'enabled',
        description: 'TCG support')
 option('plugins', type: 'boolean', value: false,
        description: 'TCG plugins via shared library loading')
+option('esp_debug', type: 'boolean', value: false,
+       description: 'Compile ESP Wi-Fi packet and DNS/NTP diagnostic logging')
 option('debug_tcg', type: 'boolean', value: false,
        description: 'TCG debugging')
 option('debug_remap', type: 'boolean', value: false,

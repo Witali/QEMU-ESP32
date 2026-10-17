@@ -133,12 +133,14 @@ static void esp32c3_wifi_trace_rx_drop(Esp32C3WifiState *s,
                                         mac80211_frame *frame, int length,
                                         const char *reason)
 {
+#ifdef CONFIG_ESP_DEBUG
     /* Observe model-side losses without changing delivery or guest state. */
     trace_esp32c3_wifi_rx_drop(qemu_clock_get_us(QEMU_CLOCK_VIRTUAL),
                              s->rx_desc, frame->frame_control.type,
                              frame->frame_control.sub_type,
                              frame->sequence_control.sequence_number,
                              length, reason);
+#endif
 }
 
 void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
@@ -307,12 +309,14 @@ static void esp32c3_wifi_write(void *opaque, hwaddr addr, uint64_t value,
     }
 
     s->regs[physical_addr / sizeof(uint32_t)] = value;
+#ifdef CONFIG_ESP_DEBUG
     if (addr == ESP32C3_WIFI_RX_BASE_DESC || addr == ESP32C3_WIFI_RX_CTRL ||
         addr == ESP32C3_WIFI_INT_CLEAR) {
         trace_esp32c3_wifi_rx_state(qemu_clock_get_us(QEMU_CLOCK_VIRTUAL),
             physical_addr, value, s->rx_desc, s->rx_last_desc,
             s->interrupt_status, s->inject_queue_size);
     }
+#endif
 }
 
 static const MemoryRegionOps esp32c3_wifi_ops = {
@@ -486,10 +490,21 @@ static void wifi_set_station_ap_online(Object *obj, bool value, Error **errp)
     Esp32_WLAN_set_station_ap_online(ESP32C3_WIFI(obj), value);
 }
 
+static bool wifi_get_debug_logging(Object *obj, Error **errp)
+{
+    /* Expose build capability without enabling logging or changing the guest. */
+#ifdef CONFIG_ESP_DEBUG
+    return true;
+#else
+    return false;
+#endif
+}
+
 static void esp32c3_wifi_init(Object *obj)
 {
     Esp32C3WifiState *s = ESP32C3_WIFI(obj);
 
+    object_property_add_bool(obj, "debug-logging", wifi_get_debug_logging, NULL);
     s->ntp_unix_seconds = -1;
     s->station_ap_online = true;
     s->station_ssid = g_strdup("QEMU");

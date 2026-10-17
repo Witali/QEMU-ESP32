@@ -2,6 +2,7 @@
 param(
     [string]$MsysRoot,
     [string]$BuildDirectory = "build-esp32c3",
+    [switch]$DebugLogging,
     [switch]$ForceBuild,
     [switch]$SkipBuild
 )
@@ -14,10 +15,14 @@ $runtimeData = Join-Path $repository "share\qemu"
 $qemu = Join-Path $runtimeBin "qemu-system-riscv32.exe"
 $runtimeMarker = Join-Path $runtimeBin ".qemu-esp32c3-commit"
 $sourceCommit = (& git -C $repository rev-parse HEAD).Trim()
+$debugMarker = Join-Path $runtimeBin ".qemu-esp32c3-debug-logging"
+$debugValue = if ($DebugLogging) { "true" } else { "false" }
 $runtimeReady =
     (Test-Path -LiteralPath $qemu -PathType Leaf) -and
     (Test-Path -LiteralPath $runtimeMarker -PathType Leaf) -and
-    ((Get-Content -Raw -LiteralPath $runtimeMarker) -eq $sourceCommit)
+    ((Get-Content -Raw -LiteralPath $runtimeMarker) -eq $sourceCommit) -and
+    (Test-Path -LiteralPath $debugMarker -PathType Leaf) -and
+    ((Get-Content -Raw -LiteralPath $debugMarker) -eq $debugValue)
 if ($runtimeReady -and -not $SkipBuild -and -not $ForceBuild) {
     & $qemu --version
     if ($LASTEXITCODE -ne 0) {
@@ -105,7 +110,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $buildPath "build.ninja") `
         "--enable-gcrypt --enable-pixman --enable-sdl --enable-slirp " +
         "--enable-stack-protector --disable-werror " +
         "--prefix=$msysRepository/install/qemu-esp32c3 --static " +
-        "--target-list=riscv32-softmmu " +
+        "--target-list=riscv32-softmmu -Desp_debug=$debugValue " +
         "--with-pkgversion='yoRadio ESP32-C3 QEMU' " +
         "--with-suffix= --without-default-features"
     & $bash -lc $configure
@@ -115,6 +120,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $buildPath "build.ninja") `
 }
 
 if (-not $SkipBuild) {
+    # Reapply the selected mode for existing build directories as well.
+    & $bash -lc ($buildEnvironment + "cd $quotedRepository && " +
+        "$quotedBuildPath/pyvenv/bin/python.exe -m mesonbuild.mesonmain configure " +
+        "$quotedBuildPath -Desp_debug=$debugValue")
+    if ($LASTEXITCODE -ne 0) { throw "Could not select ESP diagnostic logging." }
     Write-Host "Building native qemu-system-riscv32.exe"
     & $bash -lc (
         $buildEnvironment + "cd $quotedRepository && " +
@@ -125,6 +135,12 @@ if (-not $SkipBuild) {
     }
 }
 
+# SkipBuild must never install an executable with a different selected mode.
+$configHeader = Get-Content -Raw -LiteralPath (Join-Path $buildPath "config-host.h")
+$builtWithDebug = $configHeader -match "(?m)^#define CONFIG_ESP_DEBUG(?:[ \t]+1)?[ \t]*\r?$"
+if ($builtWithDebug -ne [bool]$DebugLogging) {
+    throw "The configured binary has a different ESP debug mode; rebuild without -SkipBuild."
+}
 $builtQemu = Join-Path $buildPath "qemu-system-riscv32.exe"
 if (-not (Test-Path -LiteralPath $builtQemu -PathType Leaf)) {
     throw "Built ESP32-C3 QEMU was not found: $builtQemu"
@@ -135,6 +151,7 @@ Copy-Item -LiteralPath $builtQemu -Destination $qemu -Force
 Copy-Item -LiteralPath (Join-Path $repository "pc-bios\esp32c3-rom.bin") `
     -Destination $runtimeData -Force
 Set-Content -LiteralPath $runtimeMarker -Value $sourceCommit -NoNewline
+Set-Content -LiteralPath $debugMarker -Value $debugValue -NoNewline
 & $qemu --version
 if ($LASTEXITCODE -ne 0) {
     throw "The ESP32-C3 QEMU executable smoke check failed."

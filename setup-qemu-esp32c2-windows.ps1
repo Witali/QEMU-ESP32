@@ -2,12 +2,14 @@
 param(
     [string]$MsysRoot = '',
     [string]$BuildDirectory = 'build-esp32c2',
+    [switch]$DebugLogging,
     [switch]$SkipBuild
 )
 $ErrorActionPreference = 'Stop'
 # C2 and C3 share the native riscv32-softmmu build and its Windows installer.
 $buildArguments = @{ BuildDirectory = $BuildDirectory; ForceBuild = $true }
 if ($MsysRoot) { $buildArguments.MsysRoot = $MsysRoot }
+if ($DebugLogging) { $buildArguments.DebugLogging = $true }
 if ($SkipBuild) { $buildArguments.SkipBuild = $true }
 & (Join-Path $PSScriptRoot 'setup-qemu-esp32c3-windows.ps1') @buildArguments
 $qemu = Join-Path $PSScriptRoot 'bin\qemu-system-riscv32.exe'

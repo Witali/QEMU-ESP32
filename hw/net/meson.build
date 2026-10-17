@@ -26,9 +26,11 @@ system_ss.add(when: 'CONFIG_RISCV_ESP32C3', if_true: files(
   'esp32c2_clock.c',
   'esp32c3_wifi_ap.c',
   'esp32c3_wifi_frame.c',
-  'esp32c3_wifi_trace.c',
   'esp32c3_wifi_link.c',
 ))
+if get_option('esp_debug')
+  system_ss.add(when: 'CONFIG_RISCV_ESP32C3', if_true: files('esp32c3_wifi_trace.c'))
+endif
 system_ss.add(when: 'CONFIG_XGMAC', if_true: files('xgmac.c'))
 system_ss.add(when: 'CONFIG_MIPSNET', if_true: files('mipsnet.c'))
 system_ss.add(when: 'CONFIG_XILINX_AXI', if_true: files('xilinx_axienet.c'))
