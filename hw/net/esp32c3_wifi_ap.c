@@ -34,6 +34,7 @@
 #include "qemu/guest-random.h"
 #include "qemu/timer.h"
 #include "esp32c3_wifi_trace.h"
+#include "esp32c3_wifi_link.h"
 
 #include "hw/irq.h"
 #include "hw/net/esp32c3_wifi.h"
@@ -78,46 +79,6 @@ typedef struct Esp32C3WifiEthernetPacket {
     uint8_t data[];
 } Esp32C3WifiEthernetPacket;
 
-static bool Esp32_WLAN_packet_lost(Esp32C3WifiState *s)
-{
-    uint32_t sample;
-
-    if (s->link_down) {
-        return true;
-    }
-    if (!s->loss_ppm) {
-        return false;
-    }
-    qemu_guest_getrandom_nofail(&sample, sizeof(sample));
-    return sample % 1000000 < s->loss_ppm;
-}
-
-static int64_t Esp32_WLAN_delivery_time(Esp32C3WifiState *s, size_t size,
-                                        int64_t *serial_ready_ns)
-{
-    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    int64_t serialization_ns = 0;
-    int64_t jitter_ns = 0;
-    uint32_t sample;
-
-    if (s->bandwidth_bps) {
-        serialization_ns = DIV_ROUND_UP((uint64_t)size * 8 *
-                                        NANOSECONDS_PER_SECOND,
-                                        s->bandwidth_bps);
-    }
-    *serial_ready_ns = MAX(now, *serial_ready_ns) + serialization_ns;
-
-    if (s->jitter_ms) {
-        uint64_t range = (uint64_t)s->jitter_ms * 2 + 1;
-
-        qemu_guest_getrandom_nofail(&sample, sizeof(sample));
-        jitter_ns = ((int64_t)(sample % range) - s->jitter_ms) *
-                    SCALE_MS;
-    }
-    return MAX(now, *serial_ready_ns + (int64_t)s->latency_ms * SCALE_MS +
-                    jitter_ns);
-}
-
 static void Esp32_WLAN_ethernet_tx_timer(void *opaque)
 {
     Esp32C3WifiState *s = opaque;
@@ -136,8 +97,8 @@ static void Esp32_WLAN_ethernet_tx_timer(void *opaque)
 
     if (s->ethernet_tx_queue) {
         timer_mod(s->ethernet_tx_timer,
-                  MAX(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),
-                      s->ethernet_tx_queue->delivery_ns));
+                  esp32_wifi_next_delivery(s, s->ethernet_tx_queue->delivery_ns,
+                                          s->ethernet_tx_queue->size));
     }
 }
 
@@ -148,7 +109,7 @@ static void Esp32_WLAN_send_ethernet(Esp32C3WifiState *s,
 
     if (esp32c2_clock_service(s, data, size)) return;
 
-    if (Esp32_WLAN_packet_lost(s) ||
+    if (esp32_wifi_packet_lost(s) ||
         s->ethernet_tx_queue_size >= s->queue_limit) {
         return;
     }
@@ -157,14 +118,15 @@ static void Esp32_WLAN_send_ethernet(Esp32C3WifiState *s,
     packet->next = NULL;
     packet->size = size;
     memcpy(packet->data, data, size);
-    packet->delivery_ns = Esp32_WLAN_delivery_time(
+    packet->delivery_ns = esp32_wifi_delivery_time(
         s, size, &s->tx_serial_ready_ns);
 
     if (s->ethernet_tx_tail) {
         s->ethernet_tx_tail->next = packet;
     } else {
         s->ethernet_tx_queue = packet;
-        timer_mod(s->ethernet_tx_timer, packet->delivery_ns);
+        timer_mod(s->ethernet_tx_timer, esp32_wifi_next_delivery(s,
+                  packet->delivery_ns, packet->size));
     }
     s->ethernet_tx_tail = packet;
     s->ethernet_tx_queue_size++;
@@ -254,8 +216,8 @@ void Esp32_WLAN_rx_ready(Esp32C3WifiState *s)
         !s->inject_timer_running) {
         s->inject_timer_running = true;
         timer_mod(s->inject_timer,
-                  MAX(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),
-                      s->inject_queue->delivery_ns));
+                  esp32_wifi_next_delivery(s, s->inject_queue->delivery_ns,
+                                          s->inject_queue->frame_length));
     }
 }
 
@@ -285,8 +247,8 @@ static void Esp32_WLAN_inject_timer(void *opaque)
         // there are more packets... schedule
         // the timer for sending them as well
         timer_mod(s->inject_timer,
-                  MAX(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),
-                      s->inject_queue->delivery_ns));
+                  esp32_wifi_next_delivery(s, s->inject_queue->delivery_ns,
+                                          s->inject_queue->frame_length));
     } else {
         // we wait until a new packet schedules
         // us again
@@ -480,13 +442,13 @@ void Esp32_WLAN_insert_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
     struct mac80211_frame *i_frame;
 
     insertCRC(frame);
-    if (Esp32_WLAN_packet_lost(s) ||
+    if (esp32_wifi_packet_lost(s) ||
         s->inject_queue_size >= s->queue_limit) {
         esp32_wifi_trace_packet(s, frame, "enqueue-drop", s->rx_desc, 0);
         free(frame);
         return;
     }
-    frame->delivery_ns = Esp32_WLAN_delivery_time(
+    frame->delivery_ns = esp32_wifi_delivery_time(
         s, frame->frame_length, &s->rx_serial_ready_ns);
     if(DEBUG) {
         ANSI_FG_HCOLOR(GREEN);
@@ -511,7 +473,8 @@ void Esp32_WLAN_insert_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
         // running currently, let's schedule
         // one run...
         s->inject_timer_running = 1;
-        timer_mod(s->inject_timer, frame->delivery_ns);
+        timer_mod(s->inject_timer, esp32_wifi_next_delivery(s,
+                  frame->delivery_ns, frame->frame_length));
     }
 
 }

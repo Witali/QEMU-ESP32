@@ -395,3 +395,22 @@ SYN-ACK can be distinguished from a different frame-dispatch path. The PC is
 not an exact instruction sample. Use the ordinary packet/MMIO events separately:
 frequent synchronous log writes can change host I/O scheduling enough to hide
 a timing-sensitive failure.
+
+
+### Finite transfer time after queue backlog
+
+Link timing and loss now live in `hw/net/esp32c3_wifi_link.c`. RX and TX use the
+same transfer-duration calculation when arming or continuing their FIFO timers.
+Previously, already overdue nominal deadlines were clamped to `now`, which
+could complete several frames in the same virtual instant. Finite bandwidth
+now schedules each complete frame after its transfer duration. The existing
+latency/jitter/loss controls remain; `bandwidth-bps=0` keeps unlimited mode.
+
+The regression holds two NTP replies without RX descriptors for five seconds,
+then rearms DMA at 8 Mbit/s. Previously both replies appeared after one ns;
+now each 112-byte frame takes 112 us, with FIFO order and no duplicates.
+All ten Wi-Fi packet tests, modular SPI/I2C/SD tests and unchanged CYD/C3 OLED
+boot fixtures pass on the candidate. The identical quiet five-route Small TV
+workload previously reached 6.187 virtual seconds; with finite dequeue timing,
+180 requests completed with a maximum of 0.238274 seconds. These scoped results
+do not replace the complete factory/reconstructed firmware regression suite.

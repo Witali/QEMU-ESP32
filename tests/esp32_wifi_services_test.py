@@ -177,6 +177,38 @@ class Machine:
 
 
 class WifiServicesTests(unittest.TestCase):
+    def test_c2_backlog_preserves_finite_receive_bandwidth(self):
+        """DMA rearming cannot collapse queued packets into a zero-time burst."""
+        with Machine(('clock-services=on', 'bandwidth-bps=8000000'), c2=True) as machine:
+            machine.associate()
+            machine.command(f'writel {machine.wifi + machine.rx_register:#x} 0')
+            machine.seen = 0
+            for i in range(32):
+                next_desc = machine.rx_desc + (i + 1) * 12 if i < 31 else 0
+                machine.write(machine.rx_desc + i * 12,
+                    struct.pack('<III', 2048 | (1 << 31), machine.rx_data + i * 2048, next_desc))
+            for nonce in (1, 2):
+                request = bytearray(48)
+                request[0] = 0x23
+                request[40:48] = bytes([nonce]) * 8
+                self.assertEqual(machine.udp(123, request, 2), [])
+            machine.command('clock_step 5000000000')
+            machine.command(f'writel {machine.wifi + machine.rx_register:#x} {machine.rx_desc:#x}')
+            machine.command('clock_step 1')
+            self.assertEqual(machine.replies(), [])
+            # 24-byte MAC + 8-byte LLC + 20-byte IPv4 + 8-byte UDP + 48-byte NTP
+            # + 4-byte FCS = 112 bytes, or 112 us at the configured 8 Mbit/s.
+            machine.command('clock_step 112000')
+            first = machine.replies()
+            self.assertEqual(len(first), 1)
+            self.assertEqual(first[0][52:60], bytes([1]) * 8)
+            machine.command('clock_step 112000')
+            second = machine.replies()
+            self.assertEqual(len(second), 1)
+            self.assertEqual(second[0][52:60], bytes([2]) * 8)
+            machine.command('clock_step 1000000')
+            self.assertEqual(machine.replies(), [])
+
     def test_data_frames_have_initialized_signal_strength(self):
         """Queued frames cannot inherit RSSI from a previously freed allocation."""
         for c2 in (False, True):
