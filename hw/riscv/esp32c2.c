@@ -295,6 +295,12 @@ static void esp32c2_init_spi_flash(Esp32C2MachineState *ms, BlockBackend* blk)
     /* Create the SPI flash model */
     DeviceState *flash_dev = qdev_new(flash_model);
     qdev_prop_set_drive(flash_dev, "drive", blk);
+    /* The shared SPI1 controller transmits bytes, including dummy clocks. */
+    qdev_prop_set_bit(flash_dev, "byte-dummy-cycles", true);
+    if (image_size == 4 * MB) {
+        /* Use the shared NOR model with GD25Q32C typical WIP cycle times. */
+        qdev_prop_set_bit(flash_dev, "operation-timing", true);
+    }
     qdev_prop_set_uint8(flash_dev, "cs", 1);
 
     /* Realize the SPI flash, its "drive" (blk) property must already be set! */

@@ -33,6 +33,7 @@
 #include "qemu/bitops.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
+#include "qemu/timer.h"
 #include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "trace.h"
@@ -209,7 +210,7 @@ static const FlashPartInfo known_devices[] = {
     /* GigaDevice */
     { INFO("gd25q16",     0xc84015,      0,  64 << 10,  32, ER_4K) },
     { INFO("gd25q128",    0xc84018,      0,  64 << 10, 256, ER_4K) },
-    { INFO("gd25q32",     0xc84016,      0,  64 << 10,  64, ER_4K) },
+    { INFO("gd25q32",     0xc84016,      0,  64 << 10,  64, ER_4K | ER_32K) },
     { INFO("gd25q64",     0xc84017,      0,  64 << 10, 128, ER_4K) },
 
     /* Intel/Numonyx -- xxxs33b */
@@ -529,6 +530,9 @@ struct Flash {
     uint8_t ear;
 
     int64_t dirty_page;
+    bool operation_timing;
+    int64_t busy_until_ns;
+    int64_t pending_delay_ns;
 
     const FlashPartInfo *pi;
 
@@ -561,6 +565,41 @@ static inline Manufacturer get_man(Flash *s)
     default:
         return MAN_GENERIC;
     }
+}
+
+/* GD25Q32C typical internal cycle times (datasheet 7.14, 7.17-7.20,
+ * AC characteristics). The optional property is limited to that exact model.
+ * SPI NOR contents are functional, not an electrical power-failure model. */
+static int64_t flash_operation_delay(Flash *s, FlashCMD command)
+{
+    if (!s->operation_timing) {
+        return 0;
+    }
+    switch (command) {
+    case PP:
+    case QPP:
+        return 600000;
+    case ERASE_4K:
+        return 50000000;
+    case ERASE_32K:
+        return 150000000;
+    case ERASE_SECTOR:
+        return 250000000;
+    case BULK_ERASE:
+    case BULK_ERASE_60:
+        return 15000000000LL;
+    case WRSR:
+    case WRSR2:
+        return 5000000;
+    default:
+        return 0;
+    }
+}
+
+/* Busy time advances with the guest clock, never host sleep or file I/O. */
+static bool flash_is_busy(Flash *s)
+{
+    return qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) < s->busy_until_ns;
 }
 
 static void blk_sync_complete(void *opaque, int ret)
@@ -607,6 +646,20 @@ static inline void flash_sync_area(Flash *s, int64_t off, int64_t len)
     blk_aio_pwritev(s->blk, off, iov, 0, blk_sync_complete, iov);
 }
 
+/* Apply the same configured protected interval to programming and erasing. */
+static bool flash_region_is_protected(Flash *s, uint32_t offset, uint32_t len)
+{
+    unsigned value = (s->block_protect3 << 3) | (s->block_protect2 << 2) |
+                     (s->block_protect1 << 1) | s->block_protect0;
+    if (!value || !len) {
+        return false;
+    }
+    uint64_t protected_len = MIN((1ULL << (value - 1)) * s->pi->sector_size,
+                                 s->size);
+    return s->top_bottom_bit ? offset < protected_len :
+           (uint64_t)offset + len > s->size - protected_len;
+}
+
 static void flash_erase(Flash *s, int offset, FlashCMD cmd)
 {
     uint32_t len;
@@ -644,6 +697,9 @@ static void flash_erase(Flash *s, int offset, FlashCMD cmd)
         abort();
     }
 
+    /* An erase address selects its containing unit, not its first byte.
+     * Align before touching storage, including the final sector of the chip. */
+    offset &= ~(len - 1);
     trace_m25p80_flash_erase(s, offset, len);
 
     if ((s->pi->flags & capa_to_assert) != capa_to_assert) {
@@ -655,8 +711,14 @@ static void flash_erase(Flash *s, int offset, FlashCMD cmd)
         qemu_log_mask(LOG_GUEST_ERROR, "M25P80: erase with write protect!\n");
         return;
     }
+    if (flash_region_is_protected(s, offset, len)) {
+        qemu_log_mask(LOG_GUEST_ERROR, "M25P80: erase with block protection!\n");
+        return;
+    }
     memset(s->storage + offset, 0xff, len);
     flash_sync_area(s, offset, len);
+    s->pending_delay_ns = flash_operation_delay(s, cmd);
+    s->write_enable = false;
 }
 
 static inline void flash_sync_dirty(Flash *s, int64_t newpage)
@@ -672,34 +734,9 @@ void flash_write8(Flash *s, uint32_t addr, uint8_t data)
 {
     uint32_t page = addr / s->pi->page_size;
     uint8_t prev = s->storage[s->cur_addr];
-    uint32_t block_protect_value = (s->block_protect3 << 3) |
-                                   (s->block_protect2 << 2) |
-                                   (s->block_protect1 << 1) |
-                                   (s->block_protect0 << 0);
-
-    if (!s->write_enable) {
+    if (!s->write_enable || flash_region_is_protected(s, addr, 1)) {
         qemu_log_mask(LOG_GUEST_ERROR, "M25P80: write with write protect!\n");
         return;
-    }
-
-    if (block_protect_value > 0) {
-        uint32_t num_protected_sectors = 1 << (block_protect_value - 1);
-        uint32_t sector = addr / s->pi->sector_size;
-
-        /* top_bottom_bit == 0 means TOP */
-        if (!s->top_bottom_bit) {
-            if (s->pi->n_sectors <= sector + num_protected_sectors) {
-                qemu_log_mask(LOG_GUEST_ERROR,
-                              "M25P80: write with write protect!\n");
-                return;
-            }
-        } else {
-            if (sector < num_protected_sectors) {
-                qemu_log_mask(LOG_GUEST_ERROR,
-                              "M25P80: write with write protect!\n");
-                return;
-            }
-        }
     }
 
     if ((prev ^ data) & data) {
@@ -714,6 +751,7 @@ void flash_write8(Flash *s, uint32_t addr, uint8_t data)
 
     flash_sync_dirty(s, page);
     s->dirty_page = page;
+    s->pending_delay_ns = flash_operation_delay(s, s->cmd_in_progress);
 }
 
 static inline int get_addr_length(Flash *s)
@@ -836,6 +874,7 @@ static void complete_collecting_data(Flash *s)
         }
         if (s->write_enable) {
             s->write_enable = false;
+            s->pending_delay_ns = flash_operation_delay(s, WRSR);
         }
         break;
     case WRSR2:
@@ -844,6 +883,7 @@ static void complete_collecting_data(Flash *s)
         case MAN_WINBOND:
             s->quad_enable = !!(s->data[0] & 0x02);
             s->write_enable = false;
+            s->pending_delay_ns = flash_operation_delay(s, WRSR2);
             break;
         default:
             break;
@@ -1204,6 +1244,17 @@ static void decode_new_cmd(Flash *s, uint32_t value)
     s->cmd_in_progress = value;
     trace_m25p80_command_decoded(s, value);
 
+    if (flash_is_busy(s) && value != RDSR && value != RDCR_EQIO) {
+        /* Ordinary reads, WREN and modifying commands are ignored while WIP
+         * is set. Program/erase suspend is outside this functional model. */
+        s->data[0] = 0xff;
+        s->len = 1;
+        s->pos = 0;
+        s->data_read_loop = true;
+        s->state = STATE_READING_DATA;
+        return;
+    }
+
     if (value != RESET_MEMORY) {
         s->reset_enable = false;
     }
@@ -1396,7 +1447,7 @@ static void decode_new_cmd(Flash *s, uint32_t value)
         break;
 
     case RDSR:
-        s->data[0] = (!!s->write_enable) << 1;
+        s->data[0] = ((!!s->write_enable) << 1) | flash_is_busy(s);
         s->data[0] |= (!!s->status_register_write_disabled) << 7;
         s->data[0] |= (!!s->block_protect0) << 2;
         s->data[0] |= (!!s->block_protect1) << 3;
@@ -1616,10 +1667,22 @@ static int m25p80_cs(SSIPeripheral *ss, bool select)
         if (s->state == STATE_COLLECTING_VAR_LEN_DATA) {
             complete_collecting_data(s);
         }
+        /* Page Program consumes WEL at CS deassertion. SST AAI deliberately
+         * retains it between successive word commands until WRDI. */
+        if (s->state == STATE_PAGE_PROGRAM && !s->aai_enable &&
+            s->dirty_page >= 0) {
+            s->write_enable = false;
+        }
         s->len = 0;
         s->pos = 0;
         s->state = STATE_IDLE;
         flash_sync_dirty(s, -1);
+        /* A self-timed write starts on the rising CS edge. */
+        if (s->pending_delay_ns) {
+            s->busy_until_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+                               s->pending_delay_ns;
+            s->pending_delay_ns = 0;
+        }
         s->data_read_loop = false;
     }
 
@@ -1641,7 +1704,15 @@ static uint32_t m25p80_transfer8(SSIPeripheral *ss, uint32_t tx)
     case STATE_PAGE_PROGRAM:
         trace_m25p80_page_program(s, s->cur_addr, (uint8_t)tx);
         flash_write8(s, s->cur_addr, (uint8_t)tx);
-        s->cur_addr = (s->cur_addr + 1) & (s->size - 1);
+        if (s->aai_enable) {
+            s->cur_addr = (s->cur_addr + 1) & (s->size - 1);
+        } else {
+            /* NOR Page Program wraps its column counter inside one page.
+             * Crossing into the next page requires a new WREN/PP command. */
+            uint32_t page_mask = s->pi->page_size - 1;
+            s->cur_addr = (s->cur_addr & ~page_mask) |
+                          ((s->cur_addr + 1) & page_mask);
+        }
 
         if (get_man(s) == MAN_SST && s->aai_enable && s->cur_addr == 0) {
             /*
@@ -1695,6 +1766,9 @@ static uint32_t m25p80_transfer8(SSIPeripheral *ss, uint32_t tx)
         }
 
         r = s->data[s->pos];
+        if (s->cmd_in_progress == RDSR) {
+            r = (r & ~1u) | flash_is_busy(s);
+        }
         trace_m25p80_read_data(s, s->pos, (uint8_t)r);
         s->pos++;
         if (s->pos == s->len) {
@@ -1735,6 +1809,10 @@ static void m25p80_realize(SSIPeripheral *ss, Error **errp)
     int ret;
 
     s->pi = mc->pi;
+    if (s->operation_timing && strcmp(s->pi->part_name, "gd25q32")) {
+        error_setg(errp, "operation-timing currently requires gd25q32");
+        return;
+    }
 
     s->size = s->pi->sector_size * s->pi->n_sectors;
     s->dirty_page = -1;
@@ -1788,6 +1866,7 @@ static int m25p80_pre_save(void *opaque)
 
 static Property m25p80_properties[] = {
     DEFINE_PROP_BOOL("byte-dummy-cycles", Flash, byte_dummy_cycles, false),
+    DEFINE_PROP_BOOL("operation-timing", Flash, operation_timing, false),
     /* This is default value for Micron flash */
     DEFINE_PROP_BOOL("write-enable", Flash, write_enable, false),
     DEFINE_PROP_UINT32("nonvolatile-cfg", Flash, nonvolatile_cfg, 0x8FFF),
@@ -1804,6 +1883,8 @@ static int m25p80_pre_load(void *opaque)
     Flash *s = (Flash *)opaque;
 
     s->data_read_loop = false;
+    s->busy_until_ns = 0;
+    s->pending_delay_ns = 0;
     return 0;
 }
 
@@ -1888,6 +1969,25 @@ static const VMStateDescription vmstate_m25p80_block_protect = {
     }
 };
 
+/* Keep virtual deadlines across VM migration; old untimed streams need none. */
+static bool m25p80_timing_needed(void *opaque)
+{
+    Flash *s = opaque;
+    return s->operation_timing;
+}
+
+static const VMStateDescription vmstate_m25p80_timing = {
+    .name = "m25p80/operation-timing",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .needed = m25p80_timing_needed,
+    .fields = (const VMStateField[]) {
+        VMSTATE_INT64(busy_until_ns, Flash),
+        VMSTATE_INT64(pending_delay_ns, Flash),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static const VMStateDescription vmstate_m25p80 = {
     .name = "m25p80",
     .version_id = 0,
@@ -1921,6 +2021,7 @@ static const VMStateDescription vmstate_m25p80 = {
         &vmstate_m25p80_aai_enable,
         &vmstate_m25p80_write_protect,
         &vmstate_m25p80_block_protect,
+        &vmstate_m25p80_timing,
         NULL
     }
 };

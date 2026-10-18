@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""ESP32-C3 SPI1 Flash register tests; Linux QEMU, no firmware required."""
+"""ESP32-C3 SPI1 Flash register tests; TCP QTest, no firmware required."""
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 import socket
 import subprocess
@@ -40,22 +42,25 @@ class Machine:
         machine = 'esp32c3' if family == 'legacy' else f'esp32c3,flash-model={family}'
         if explicit:
             machine += f',flash-size={mib}M'
-        sock = str(directory / 'qtest.sock')
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1',0))
+            port = listener.getsockname()[1]
         self.log = (directory / 'qemu.log').open('w')
         self.proc = subprocess.Popen([
             args.qemu, '-M', machine, '-S', '-display', 'none', '-serial', 'none',
             '-monitor', 'none', '-L', args.bios, '-snapshot',
             '-drive', f'file={self.image},if=mtd,format=raw',
-            '-qtest', f'unix:{sock},server=on,wait=off', '-qtest-log', '/dev/null',
-        ], stdout=self.log, stderr=self.log)
-        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            '-qtest', f'tcp:127.0.0.1:{port},server=on,wait=off', '-qtest-log', os.devnull,
+        ], stdout=self.log, stderr=self.log,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform=='win32' else 0)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(5)
         deadline = time.monotonic() + 15
         while True:
             try:
-                self.socket.connect(sock)
+                self.socket.connect(('127.0.0.1',port))
                 break
-            except (FileNotFoundError, ConnectionRefusedError):
+            except (TimeoutError, ConnectionRefusedError):
                 if self.proc.poll() is not None or time.monotonic() > deadline:
                     self.close()
                     raise RuntimeError((directory / 'qemu.log').read_text())
@@ -165,16 +170,19 @@ def main():
     parser.add_argument('--qemu', required=True)
     parser.add_argument('--bios', required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--temp-root', type=Path, help='Owned temporary test directory')
     parser.add_argument('--baseline', action='store_true', help='Only old default 4 MiB: expose QE failure')
     args = parser.parse_args()
     report = []
+    if args.temp_root:
+        args.temp_root.mkdir(parents=True,exist_ok=True)
     families = ('legacy',) if args.baseline else ('gd25q', 'w25q', 'legacy')
     for family in families:
         for mib in (4,) if args.baseline else (2, 4, 8, 16):
             expected = f'{"c840" if family == "gd25q" else "ef40"}{20 + mib.bit_length()-1:02x}'
             if family == 'legacy':
                 expected = {2:'ef3015', 4:'c84016', 8:'c84017', 16:'9d6018'}[mib]
-            with tempfile.TemporaryDirectory(prefix='c3-flash-') as temp:
+            with tempfile.TemporaryDirectory(prefix='c3-flash-',dir=args.temp_root) as temp:
                 machine = Machine(args, Path(temp), family, mib, explicit=not args.baseline and family != 'legacy')
                 try:
                     checks = machine.run(expected, modes=family != 'legacy' or args.baseline)
@@ -186,7 +194,7 @@ def main():
                 report.append(row)
                 print(json.dumps(row), flush=True)
     if not args.baseline:
-        with tempfile.TemporaryDirectory(prefix='c3-invalid-') as temp:
+        with tempfile.TemporaryDirectory(prefix='c3-invalid-',dir=args.temp_root) as temp:
             image = Path(temp) / 'flash.bin'
             image.write_bytes(b'\xff' * (4 * 1024 * 1024))
             invalid = [

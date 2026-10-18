@@ -1,0 +1,161 @@
+{
+  "status": "flash_checks_passed_with_existing_cyd_failure",
+  "all_functionality_verified": false,
+  "scope": "Shared NOR write/read/cache/backing image checks. New C2 setup and C3 OLED boot controls passed. Full CYD compatibility is not accepted: both pre-change NOR control and extended candidate reproduce esp_phy_enable assertion.",
+  "flash_checks_passed": true,
+  "legacy_board_acceptance": false,
+  "binaries": {
+    "riscv32": "20b133d9078c05240bd6624c7ff91b997d176ae12e60f376b14eb2cb90e28f8e",
+    "xtensa": "1845328f2f5c4424bd7a6fdd8b36ef36eedb9e4cf69a2ee188eb45932fa463e1"
+  },
+  "source_sha256": {
+    "hw/block/m25p80.c": "26d02557f5d25e049bf598090d43a0d35d9b205b57682fe8db8d6c6501c31b00",
+    "hw/misc/esp32c2_cache.c": "b7f500fb57aa0bc4dfb18c6267bc56da8215a9d37e28f6045805712f90f8858d",
+    "hw/misc/esp32c3_cache.c": "3d6d80a919d78dd0277e0729ee2bf90d2b2dfa53e09754966ddfa00ca5963bdb",
+    "hw/riscv/esp32c2.c": "642cd3cf2de07813611d41fba28d01a7e425c4651d85a0b95261cd93aae00eaa",
+    "hw/ssi/esp32_spi.c": "78716409f03bd4ef2d3735ff86d4cae9699648b9d5d283095d99b295a24c20b4",
+    "hw/ssi/esp32c3_spi.c": "80fda3dd8858e1de45785626d6f920f8fe0b21e2f87a602962ca4ec1dd210ddc",
+    "include/hw/misc/esp32c2_cache.h": "71f34128db47d609e2efbc20dd8b13fbefcf5c0d5d058fdb9f4f31e2ddeb6f36",
+    "include/hw/misc/esp32c3_cache.h": "0b3d9f34a4baaf78032d27399626ca337b102748d080a3b592c89e053a04906f",
+    "tests/esp_flash_write_test.py": "0d4d3ec5cd256538d406a3a86f8780e7232b69e34c4969b1816abcbfc99c1cea",
+    "tests/esp32c3_flash_test.py": "4bf384ac5051e44bc01d56b226150e2b549059d5cac4912ca286e853b7a49858",
+    "tools/test_esp_modules.py": "ac6bf67b53508a84a930717103007f5112d784db6a989ff1fd57b14593f17657",
+    "tools/test_esp_legacy.py": "9d0c9e7b731d630d2186efd3396544a2b16ae7946d79f09c889e596305d9babb",
+    "tools/small_tv_http_test.py": "222c3b17f3cf9fc4aed123fda4939678f7366076cd8f86373d3e59b630b22c94"
+  },
+  "qtest": {
+    "groups": 11,
+    "socs": [
+      "esp32c2",
+      "esp32c3",
+      "esp32"
+    ],
+    "passed": true,
+    "negative_same_harness": {
+      "expected_failed": true,
+      "failures": 24,
+      "errors": 2,
+      "note": "Two errors are the absent old operation-timing property, not successful busy-cycle checks.",
+      "riscv32_sha256": "b44d1a054fe65443b050e0feed86dcda3029d33c76faea9bb7e69a988feb0160",
+      "xtensa_sha256": "f6a5f29315d1bea5c99b74890a99c86c70886fdc0d50f24f62c24cdda43abc35"
+    }
+  },
+  "flash_matrix": {
+    "rows": 17,
+    "checks": 476,
+    "passed": true
+  },
+  "modular_peripherals_passed": true,
+  "firmware": {
+    "final_setup": {
+      "factory_checks": 16,
+      "native_checks": 21,
+      "station_isolation": true,
+      "qemu_sha256": "20b133d9078c05240bd6624c7ff91b997d176ae12e60f376b14eb2cb90e28f8e"
+    },
+    "regional": {
+      "factory_keys": 15,
+      "native_keys": 15,
+      "maximum_fields": true,
+      "cold_boot": true,
+      "nvs_v1_v2": true,
+      "qemu_sha256": "9da7674090e20bfff4791dd3ed02c812c6e4d861516b374465129af82d69ddb1",
+      "limit": "Intermediate 9DA binary predates final C2 dummy/QE selection and advertised 32K capability; not final-binary full-suite acceptance."
+    }
+  },
+  "legacy": {
+    "short_candidate_cyd": true,
+    "c3_oled": true,
+    "c3_modular": true,
+    "short_run_aggregate_passed": false,
+    "exact_pre_change_cyd_passed": false,
+    "extended_candidate_cyd_passed": false,
+    "shared_failure": "assert failed: esp_phy_enable phy_init.c:332 (phy_module_has_clock_bits(PHY_INIT_MODEM_CLOCK_REQUIRED_BITS))",
+    "limitation": "The previous 25-second console/no-panic check can finish before application network initialization. It does not establish full CYD boot compatibility.",
+    "control_build": {
+      "base_commit": "aab05d5de6fc9c6b0a784221d6629581a887679b",
+      "scope": "Same compiler/configuration and classic machine sources; only m25p80.c replaced by its exact pre-change Git blob. C2/C3 cache changes are unused by this Xtensa machine.",
+      "old_flash_source_sha256": "434c205c76594b159015782e41c6e9d4cc4cfd8d8736efba3f6ed0677eeef33e",
+      "fixed_flash_source_sha256": "26d02557f5d25e049bf598090d43a0d35d9b205b57682fe8db8d6c6501c31b00",
+      "installed_sha256": "1845328f2f5c4424bd7a6fdd8b36ef36eedb9e4cf69a2ee188eb45932fa463e1",
+      "control_executable_sha256": "b9409fda2f96624b9d9b03607f70c476197296f0e55b1b973b03f97610e28b33"
+    }
+  },
+  "raw": [
+    {
+      "file": "flash-write-writes-20261018.json.gz",
+      "sha256": "1fe5d080c14da3ce38afbb09344dabe64205473805e532812f1ad4ef892dcb52",
+      "uncompressed_sha256": "b0a66bd3af2b798ab0039176352e848ed3d4daf52511a00ae05830f6a774d299"
+    },
+    {
+      "file": "flash-write-negative-20261018.json.gz",
+      "sha256": "26079ab0b4cda30b14e500cbd66a5c6247b8eef6d511b6cf149338a2359bc852",
+      "uncompressed_sha256": "783f3ad42560a4ff161049aa4e53c8a733818a5e66ddf86fabc855b939b4e528"
+    },
+    {
+      "file": "flash-write-matrix-20261018.json.gz",
+      "sha256": "16c7b77be5b261f30dc605f3515334461e75eded7cb62297a15397b414670bae",
+      "uncompressed_sha256": "70692edfbc96792e02fa1e6ca48f2d9fbde34343087602494e6adcf74b57a4c9"
+    },
+    {
+      "file": "flash-write-modules-20261018.json.gz",
+      "sha256": "9c20f6557a654769ebf5ba19710d99a55b1c23263ae2a01c6be78096a4e011cd",
+      "uncompressed_sha256": "c7d0779e1a11fdf930b7b014aa53189e5fc432d4c40ad0b0d0bd7a82be68f42f"
+    },
+    {
+      "file": "flash-write-legacy-short-20261018.json.gz",
+      "sha256": "3d74cab07b7cf6280840e32419173583a7a699f1dbb82d58b505cf23f92a96a3",
+      "uncompressed_sha256": "c9abd78941efe8e4e72548136f83713f8b84547afb2817f71579783d773b01f1"
+    },
+    {
+      "file": "flash-write-cyd-control-build-20261018.json.gz",
+      "sha256": "b55a2caa67f678d3190348694cf25656c81ed650a5d1bfbe49e4a7774a841e86",
+      "uncompressed_sha256": "2ef8830663865e23c7e55caed76d60b7de78d8df8e47361c015b9a6db90a867e"
+    },
+    {
+      "file": "flash-write-cyd-control-20261018.json.gz",
+      "sha256": "b75d283026e0356fefdfbdf14704b7beafc94fec0072aca8ee7c9a78e92bdc39",
+      "uncompressed_sha256": "6213b0bb6b50f54670895560f968d801b7394460f0a26974b5f24ba1ce0807ce"
+    },
+    {
+      "file": "flash-write-cyd-extended-20261018.json.gz",
+      "sha256": "79a21fc4deefab0f9fe643b4510ae4b7b21d07b41faa3ba261be9dfc44c00110",
+      "uncompressed_sha256": "63c8017c92f83272065da4b03e0da670f2119b3e34c0d2f193dec43e9f63e4d9"
+    },
+    {
+      "file": "flash-write-setup-final-20261018.json.gz",
+      "sha256": "94de2c4783140cfc03ff7595b1ba90f66b93017346da4f24d39af5e0ec231046",
+      "uncompressed_sha256": "6c7f322609fec808a1d2f164ba0a7dee67b1ee61da29923f61703f793abaa539"
+    },
+    {
+      "file": "flash-write-regional-intermediate-20261018.json.gz",
+      "sha256": "1fe59e340f920cb6705dfad96bc297da0ef5bc4faf62258e02a7b6d99c6d0d3c",
+      "uncompressed_sha256": "ebdd154d0199a6dbe60b3ae96cdb88293d7e7343d3627d3b365c8c2d79d5bbec"
+    },
+    {
+      "file": "flash-write-cyd-control-uart-20261018.log.gz",
+      "sha256": "750ea25c8d596040444ed3e69070296cc0812065eee57644132e7810b4f098ff",
+      "uncompressed_sha256": "11cb1ed93139bee54100d8150eee1748f762ca9a40b95085dd28e15f4ae19f95"
+    },
+    {
+      "file": "flash-write-cyd-extended-uart-20261018.log.gz",
+      "sha256": "fee0c6216438fb47cb5113949816189b0ba027f6fa8a6a3421e22286aca2a28e",
+      "uncompressed_sha256": "9d3cec2795d07d08e6d4560f9077247c57932a227cf9bd1d14546093c284c04c"
+    },
+    {
+      "file": "flash-write-cyd-installed-control-uart-20261018.log.gz",
+      "sha256": "eeb22688aee505cb7ab57b79efa93dccc84e7392b440644570e5e0fd1bd01622",
+      "uncompressed_sha256": "da4e69b7659545b3208346684218fd3b936d1f6ab027fb0e74a48a3b684ff0ab"
+    },
+    {
+      "file": "flash-write-cyd-control-build-script-20261018.py.gz",
+      "sha256": "3c1d2360c7e9fe399ca9f1b126dcbf8719ae8fee629d82e07c9acc795a64ace1",
+      "uncompressed_sha256": "d24b3ba60ff8e0e6d2d556549c732145c2c6cb7f5105b6c007b1bca2fca8fb3d"
+    },
+    {
+      "file": "flash-write-cyd-extended-probe-20261018.py.gz",
+      "sha256": "80feb8bbd10c869408fbd0fc61120b9fe2c24ff3547f13510f0c782bda22d253",
+      "uncompressed_sha256": "f67edcd6d30c7b4f1dd7341140a8b736ece435efa77db07336daf85ae0fa63e8"
+    }
+  ]
+}

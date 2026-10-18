@@ -22,6 +22,8 @@
 #include "hw/misc/esp32c2_cache.h"
 #include "hw/misc/esp32c3_xts_aes.h"
 #include "sysemu/block-backend-io.h"
+#include "sysemu/block-backend-global-state.h"
+#include "qemu/bswap.h"
 #include "hw/misc/esp32c3_reg.h"
 
 
@@ -56,39 +58,60 @@ static inline uint32_t esp32c2_read_mmu_value(ESP32C2CacheState *s, hwaddr reg_a
 }
 
 
-static inline void esp32c2_write_mmu_value(ESP32C2CacheState *s, hwaddr reg_addr, uint32_t value)
+/* Populate one emulated cache page from the completed flash backing writes. */
+static void esp32c2_cache_load_page(ESP32C2CacheState *s, unsigned index)
 {
-    ESP32C3XtsAesClass *xts_aes_class = ESP32C3_XTS_AES_GET_CLASS(s->xts_aes);
-    /* Make the assumption that the address is aligned on sizeof(uint32_t) */
-    const uint32_t index = reg_addr / sizeof(uint32_t);
-    /* Reserved bits shall always be 0 */
-    ESP32C2MMUEntry e = { .val = value };
-    /* Always keep reserved as 0 */
-    e.reserved = 0;
-    if (s->mmu[index].val != e.val) {
-        /* Update the cache (MemoryRegion) */
-        unsigned code = (s->regs[0xc8 / 4] >> 3) & 3;
-        unsigned page_size = 16384u << MIN(code, 2);
-        const uint32_t virtual_address = index * page_size;
-        /* The entry contains the index of the 64KB block from the flash memory */
-        const uint32_t physical_address = e.page_number * page_size;
-        uint8_t* cache_data = ((uint8_t*) memory_region_get_ram_ptr(&s->dcache)) + virtual_address;
+    const unsigned page_size = 16384u << MIN((s->regs[0xc8 / 4] >> 3) & 3, 2);
+    const uint32_t virtual_address = index * page_size;
+    const uint32_t physical_address = s->mmu[index].page_number * page_size;
+    uint8_t *data = memory_region_get_ram_ptr(&s->dcache) + virtual_address;
 
-        if (e.invalid) {
-            const uint32_t invalid_value = 0xdeadbeef;
-            uint32_t* cache_word_data = (uint32_t*) cache_data;
-            for (int i = 0; i < page_size / sizeof(invalid_value); i++) {
-                cache_word_data[i] = invalid_value;
-            }
-        } else {
-            if (s->flash_blk != NULL) {
-                blk_pread(s->flash_blk, physical_address, page_size, cache_data, 0);
-            }
-            if (xts_aes_class->is_flash_enc_enabled(s->xts_aes)) {
-                xts_aes_class->decrypt(s->xts_aes, physical_address, cache_data, page_size);
+    if (s->mmu[index].invalid) {
+        for (unsigned i = 0; i < page_size; i += sizeof(uint32_t)) {
+            stl_le_p(data + i, 0xdeadbeef);
+        }
+    } else if (s->flash_blk) {
+        /* m25p80 queues backend writes asynchronously. A cache fill must not
+         * read an older image while SPI reads already expose the new bytes. */
+        blk_drain(s->flash_blk);
+        if (blk_pread(s->flash_blk, physical_address, page_size, data, 0) < 0) {
+            memset(data, 0xff, page_size);
+            qemu_log_mask(LOG_GUEST_ERROR, "ESP32C2: flash cache read failed\n");
+        } else if (s->xts_aes) {
+            ESP32C3XtsAesClass *aes = ESP32C3_XTS_AES_GET_CLASS(s->xts_aes);
+            if (aes->is_flash_enc_enabled(s->xts_aes)) {
+                aes->decrypt(s->xts_aes, physical_address, data, page_size);
             }
         }
-        s->mmu[index].val = e.val;
+    }
+    /* The same ROM device supplies both data and translated instructions. */
+    memory_region_flush_rom_device(&s->dcache, virtual_address, page_size);
+}
+
+/* Invalidate all mapped aliases. Reloading whole mapped pages also covers
+ * Cache_Invalidate_All and partial cache-line requests without stale bytes. */
+static void esp32c2_cache_invalidate(ESP32C2CacheState *s)
+{
+    for (unsigned i = 0; i < ESP32C2_MMU_TABLE_ENTRY_COUNT; i++) {
+        if (!s->mmu[i].invalid) {
+            esp32c2_cache_load_page(s, i);
+        }
+    }
+}
+
+/* Install an MMU entry and fill its new virtual page. */
+static inline void esp32c2_write_mmu_value(ESP32C2CacheState *s,
+                                         hwaddr reg_addr, uint32_t value)
+{
+    const unsigned index = reg_addr / sizeof(uint32_t);
+    ESP32C2MMUEntry entry = { .val = value };
+    entry.reserved = 0;
+    if (index >= ESP32C2_MMU_TABLE_ENTRY_COUNT) {
+        return;
+    }
+    if (s->mmu[index].val != entry.val) {
+        s->mmu[index].val = entry.val;
+        esp32c2_cache_load_page(s, index);
     }
 }
 
@@ -159,6 +182,14 @@ static void esp32c2_cache_write(void *opaque, hwaddr addr, uint64_t value,
 
     if (index < ESP32C2_CACHE_REG_COUNT) {
         switch (addr) {
+            case A_EXTMEM_ICACHE_SYNC_CTRL:
+                if (value & R_EXTMEM_ICACHE_SYNC_CTRL_INVALIDATE_ENA_MASK) {
+                    esp32c2_cache_invalidate(s);
+                    value &= ~R_EXTMEM_ICACHE_SYNC_CTRL_INVALIDATE_ENA_MASK;
+                    value |= R_EXTMEM_ICACHE_SYNC_CTRL_SYNC_DONE_MASK;
+                }
+                s->regs[index] = value;
+                break;
             case A_EXTMEM_ICACHE_CTRL:
                 s->icache_enable = value & 1;
                 break;
