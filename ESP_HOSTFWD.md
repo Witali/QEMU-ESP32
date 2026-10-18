@@ -190,3 +190,6 @@ QMP/RSP client was attached. It is not a completed H10 or a firmware failure
 claim. The original 31 runtime inputs and 11 snapshot inputs were rehashed
 unchanged, as were all 539 inputs of the separate latest full run. A complete
 H10 on the final firmware/emulator pair and full-suite acceptance are pending.
+
+The retained controls, raw diagnostics and hash manifest are available in
+[the validation record](tests/results/hostfwd-ports-20261018/summary.json).

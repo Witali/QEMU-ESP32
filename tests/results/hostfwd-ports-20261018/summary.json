@@ -1,0 +1,627 @@
+{
+  "status": "narrow_network_and_flash_regressions_passed_with_board_and_h10_limits",
+  "all_functionality_verified": false,
+  "cyd_accepted": false,
+  "h10_accepted": false,
+  "captured_utc": "2026-10-18T14:47:29.047815+00:00",
+  "qemu_source_commit": "b068387b7a6a959b1ad2922fb140006a8f5deb48",
+  "binary_compiled_before_source_commits": true,
+  "build_package_label": "yoRadio host-forwarding control (shared by enabled and control builds; use hashes)",
+  "compiled_source_sha256": {
+    "meson.build": "f1842391fe3292b420345f2b1240a09b3cc604d769c409de61702d3f2f7f67d9",
+    "net/slirp.c": "cc2575918cfe518088e54d2d39b303851defa3c3667f23ce600dc77dfc75a083",
+    "migration/file.c": "70c025a154329f330316494505e3c829c161f60ed72549626a1f10d84900c4a6",
+    "subprojects/slirp-win32.wrap": "3ef0b0182a884169eafd4e4c52c10f5716e929f3476c7ec3804b853d07885e7e",
+    "subprojects/packagefiles/slirp-win32-subproject.diff": "9e54dfdffccbbc1d6ba124095f3f743f301c25d5abce02b12e3a01ee34a0e450",
+    "subprojects/packagefiles/slirp-win32-listen.diff": "004a43d4353036f4fbf71fde60b94068db4a6f5cf80532aba1d635d87f0bf32a",
+    "subprojects/packagefiles/slirp-win32-hostfwd-ports.diff": "fad645535ed7b796848f4b45fe498e2d9a811d922c4e7350e889765ece1bdc75"
+  },
+  "pinned_libslirp": "dd76415fce457e319d665eb8210d05c5731360ba",
+  "app_sha256": "0592b51036117b81b98d7b7f615bbc7cce7e52e88635627c9f2c48afbed422ec",
+  "qemu_sha256": "d64f3013739f22b986e07aed39395b25bde474f52ef813b8ffaeedb0991edecc",
+  "browser": {
+    "v2": {
+      "passed": true,
+      "page_loads": 60,
+      "qemu_sha256": "226a04ce40ddd388d5b1e3973b110c815d16605dc5dc79772716b20ae269a80c"
+    },
+    "v3": {
+      "passed": true,
+      "page_loads": 60,
+      "qemu_sha256": "d64f3013739f22b986e07aed39395b25bde474f52ef813b8ffaeedb0991edecc"
+    }
+  },
+  "causal_peer_controls": {
+    "v2-enabled": {
+      "passed": true,
+      "expected_failed": false,
+      "response_wall_seconds": 0.15600000001722947,
+      "qemu_sha256": "85f0bfc47fdce5c5be187585cb6e1f927c30d764a344a3801eb70a506f80f1d9"
+    },
+    "v2-control": {
+      "passed": false,
+      "expected_failed": true,
+      "response_wall_seconds": 3.0160000000032596,
+      "qemu_sha256": "6e38ab45adae4f50e9896fdf8fb2f2ec38cc41b997bade9c1c7109fb069b7e39"
+    },
+    "v2-final": {
+      "passed": true,
+      "expected_failed": false,
+      "response_wall_seconds": 0.1559999999590218,
+      "qemu_sha256": "226a04ce40ddd388d5b1e3973b110c815d16605dc5dc79772716b20ae269a80c"
+    },
+    "v3-final": {
+      "passed": true,
+      "expected_failed": false,
+      "response_wall_seconds": 0.3440000000409782,
+      "qemu_sha256": "d64f3013739f22b986e07aed39395b25bde474f52ef813b8ffaeedb0991edecc"
+    }
+  },
+  "wifi": {
+    "passed": true,
+    "flows": 3,
+    "ui_checks": 93,
+    "storage_role_checks": 18,
+    "inputs_verified": 25
+  },
+  "native_library_checks": 10,
+  "fresh_wrap_library_checks": 10,
+  "packet_checks": 12,
+  "nor_groups": 11,
+  "nor_socs": [
+    "esp32c2",
+    "esp32c3",
+    "esp32"
+  ],
+  "modular_checks_passed": true,
+  "host_tools_checks": 11,
+  "c3_profiles_passed": 2,
+  "migration": {
+    "port_reservations": true,
+    "all_byte_ram_transfer": true,
+    "legacy_v4_prefix_readable": true,
+    "complete_esp_migration": false
+  },
+  "limitations": [
+    "CYD PHY/cache failures in both same-configuration control and final; original 20B passes this bounded comparison.",
+    "BC68/20B H10 lost workload/supervisor after 336 cycles; no terminal acceptance.",
+    "The 0592 full suite ran on original 20B, not this new QEMU.",
+    "Old same-toolchain listener controls have different generated configuration bytes from the latest causal pair.",
+    "Thin archive byte hashes alone do not identify compiled object contents; final and fresh library reports pin referenced objects.",
+    "Stale restore was detected before acceptance; its duplicate disabled binaries were removed only after hash comparison."
+  ],
+  "artifacts": [
+    {
+      "file": "browser-v2-report.json.gz",
+      "original_sha256": "ed71f0a515f37e011bfd54907fb5aa5e157c36620657c2531d701494cc3cfdd0",
+      "published_payload_sha256": "10df02665b21024d3117f0df2f910e288ba8ae1e4c263be41a766a984ccbf5d6",
+      "gzip_sha256": "bc53924defe32d7f9dd7e8bdc5be22807185289e027e1d20363c351791573cbc",
+      "host_account_paths_normalized": true
+    },
+    {
+      "file": "browser-v2-browser.json.gz",
+      "original_sha256": "9e891e88e492fed5704ceb9882192f42ce19baae33ffe2f9cff532fe5d14e02e",
+      "published_payload_sha256": "9e891e88e492fed5704ceb9882192f42ce19baae33ffe2f9cff532fe5d14e02e",
+      "gzip_sha256": "e85a978bd7c657086b8864849dae7b9d1ab688b100701e2e6d060898f7daf5cf",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "browser-v2-network.pcap.gz",
+      "original_sha256": "5095fd2a39b01a9b85ea84ba1db90269f84f04385c0b4ccb6940eeb66ec619f4",
+      "published_payload_sha256": "5095fd2a39b01a9b85ea84ba1db90269f84f04385c0b4ccb6940eeb66ec619f4",
+      "gzip_sha256": "917378bdccede5d82934c5c60b3c796c8f9247939b5cacb8f4c6a354e607bb53",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "browser-v3-report.json.gz",
+      "original_sha256": "07ab06ae7004ff9d1a6fdd330c988c1a234c59b54dfab746d20b6d2bad9a206d",
+      "published_payload_sha256": "6b259c2260830560d3a1ec3e4b86f010ba41dd2a1465d806abfb965753596fe1",
+      "gzip_sha256": "449fcf913ad9acb8f1038842426d88512ec3ec4a4b87e41147b3dd5159ed941a",
+      "host_account_paths_normalized": true
+    },
+    {
+      "file": "browser-v3-browser.json.gz",
+      "original_sha256": "2bf2a5e7de771a0f82f7eb1660ef6728159a98c58a27ffcb662fff1c4e7bfe4c",
+      "published_payload_sha256": "2bf2a5e7de771a0f82f7eb1660ef6728159a98c58a27ffcb662fff1c4e7bfe4c",
+      "gzip_sha256": "013b74e4567f4ccaa9c45ca9bd5f4fb69ccad932be7138c0b9ae80cbf12d54a4",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "browser-v3-network.pcap.gz",
+      "original_sha256": "025a6bdec4c5417eb67f835630d831f73344a1ef60fabe0a92e2e796d44bafa1",
+      "published_payload_sha256": "025a6bdec4c5417eb67f835630d831f73344a1ef60fabe0a92e2e796d44bafa1",
+      "gzip_sha256": "2dc0ea2cb612c202a654ffb466127d9c4062f5783fe3a05c476cec8dd1a49bb8",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-enabled-report.json.gz",
+      "original_sha256": "81553568d04fbe7a39cf0f90bd83dff5ec1aef9f27e7fa679be323d2a77097af",
+      "published_payload_sha256": "81553568d04fbe7a39cf0f90bd83dff5ec1aef9f27e7fa679be323d2a77097af",
+      "gzip_sha256": "dbe2e02d7fdb0e072b0617a44186ff2d64b6a63095d8aaacd40c6ed86deef556",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-enabled-network.pcap.gz",
+      "original_sha256": "69ab1860157b6851dde47cb840d3d2f0df153919e94913b84bb6939eecc2a2aa",
+      "published_payload_sha256": "69ab1860157b6851dde47cb840d3d2f0df153919e94913b84bb6939eecc2a2aa",
+      "gzip_sha256": "10f7191bf64fa2a8ce06adfc7805868f504decbd33bf4cd79adf4efd4c8edf3f",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-enabled-vm-uart.log.gz",
+      "original_sha256": "5701bf8f930484da668d08f0916bc6336e3e815aef657a6da098e391f1795ec6",
+      "published_payload_sha256": "5701bf8f930484da668d08f0916bc6336e3e815aef657a6da098e391f1795ec6",
+      "gzip_sha256": "86c39c6b099484c2ab653c042fd4e78505dce89e0731244076d73f82c1cead27",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-control-report.json.gz",
+      "original_sha256": "df3ad9fce977c37f213d7f5aa72224d21f5808a41e4621a0b4c663bb1b0552c0",
+      "published_payload_sha256": "df3ad9fce977c37f213d7f5aa72224d21f5808a41e4621a0b4c663bb1b0552c0",
+      "gzip_sha256": "0301855bd63a52cd331ea2226631165ad2478b8bc24a2df7244f0ccba498d0eb",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-control-network.pcap.gz",
+      "original_sha256": "1f86c5985aaea6a4345d48c3ff7c7538ccbbf05741a94a6fc50707fcfe0112ca",
+      "published_payload_sha256": "1f86c5985aaea6a4345d48c3ff7c7538ccbbf05741a94a6fc50707fcfe0112ca",
+      "gzip_sha256": "1f312b004242a114066c8d8c47a5c9d0d966efa1c8b9c0df7bc9c76f8e547ea3",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-control-vm-uart.log.gz",
+      "original_sha256": "983ed6aa94550a3ed628d720915a7b1b188cf0d9949024441f4a588c669ec500",
+      "published_payload_sha256": "983ed6aa94550a3ed628d720915a7b1b188cf0d9949024441f4a588c669ec500",
+      "gzip_sha256": "0b0754c2cb07d3090ae7f179fc9c12b7c1793b119b41b2e5742a2a0ed4e5fd5b",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-final-report.json.gz",
+      "original_sha256": "64474653ec180a15ca0b8a1e852f4b2ab4bfa83c3f751af9699ab47f490ea718",
+      "published_payload_sha256": "64474653ec180a15ca0b8a1e852f4b2ab4bfa83c3f751af9699ab47f490ea718",
+      "gzip_sha256": "c8884274575e345093409eb646305152c5c1d6990de7820043609582847a4c1c",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-final-network.pcap.gz",
+      "original_sha256": "9418a4f28e50412c81dbf51a93f59a43e0257877a6376be7ae24d285bea293dd",
+      "published_payload_sha256": "9418a4f28e50412c81dbf51a93f59a43e0257877a6376be7ae24d285bea293dd",
+      "gzip_sha256": "52e7e6dd9c7d51cbdc33a05421503115899894c71d4e01b9b66b43156cfc4476",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v2-final-vm-uart.log.gz",
+      "original_sha256": "dc253d0abd148c6a021aa3df5c54a4c3c1a5fc0c5b98179cbffaa9d42cabcbaa",
+      "published_payload_sha256": "dc253d0abd148c6a021aa3df5c54a4c3c1a5fc0c5b98179cbffaa9d42cabcbaa",
+      "gzip_sha256": "40e4059f468a370616abcae7d8d0482b1c511e077b956429ff75224533945263",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v3-final-report.json.gz",
+      "original_sha256": "627e654490fa9937b43d8d2d2770df5612d13630b3670dc95c1688aa584322b1",
+      "published_payload_sha256": "627e654490fa9937b43d8d2d2770df5612d13630b3670dc95c1688aa584322b1",
+      "gzip_sha256": "3695e0951851d90f494a5c8d9788ad18bbd37eb647d21e4c936df18b3b32f42f",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v3-final-network.pcap.gz",
+      "original_sha256": "f8052a60df739450cee247217d7791f1b801a0e2f9d87f55eabb7189006ddae8",
+      "published_payload_sha256": "f8052a60df739450cee247217d7791f1b801a0e2f9d87f55eabb7189006ddae8",
+      "gzip_sha256": "c1fd2aa5c9fe1fa3e9d1017f0beedbf54758c1e2f580d2154384f2735fe732a9",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "peer-v3-final-vm-uart.log.gz",
+      "original_sha256": "5e7187672afa485bcb1a499e1b71bd556c85aad1e0256ad3983456df769889a1",
+      "published_payload_sha256": "5e7187672afa485bcb1a499e1b71bd556c85aad1e0256ad3983456df769889a1",
+      "gzip_sha256": "86bac733b816f47e1d4078176fc6f87f043e67dbc710f45bec74c0ba5f7e6fc1",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "causal-enabled-tcp_subr.c.gz",
+      "original_sha256": "04056fd31bb379d4aa57c23a89c6328a108b55551472895ff70dc2142f07455d",
+      "published_payload_sha256": "04056fd31bb379d4aa57c23a89c6328a108b55551472895ff70dc2142f07455d",
+      "gzip_sha256": "75a36bbaa457c19b3118f6179a0597f82b09e9776ae10ed49b312c5a944f62ce",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "causal-control-tcp_subr.c.gz",
+      "original_sha256": "94b6e2ea2e070500cf25617738cad60c108db4ddba0183fc78afad66f89272d9",
+      "published_payload_sha256": "94b6e2ea2e070500cf25617738cad60c108db4ddba0183fc78afad66f89272d9",
+      "gzip_sha256": "746f4d726da513532bf2debfadab3b984f4e9ad6b7d40f54e4c48a8826535607",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "causal-enabled-inputs.json.gz",
+      "original_sha256": "f1b2cf7706e7ad0244a07b44a27cc405df72784081d69b6552405947059fc3e0",
+      "published_payload_sha256": "f1b2cf7706e7ad0244a07b44a27cc405df72784081d69b6552405947059fc3e0",
+      "gzip_sha256": "ddbc7dd2a60d0fa2ba7438e491c03733499d3519e3662ec2456e5520992831f7",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "wifi-report.json.gz",
+      "original_sha256": "ec3c2a2069bba86ea03abf33ccaa5e2cf2fd70428072354630a410e6aaa40ab3",
+      "published_payload_sha256": "007a8bbc679f19880a4de39ccbcc815f16d2c1e5a49b5b94364b8e4289527c21",
+      "gzip_sha256": "7ffbf8dcb6f5d88398f884501eca3c98d90d764618538ca9178ebb695d16be58",
+      "host_account_paths_normalized": true
+    },
+    {
+      "file": "wifi-discovered-uart-cold.log.gz.gz",
+      "original_sha256": "942c3b40facfa34a0774fc839f55b12392410ea1be343138e08e3664bb886252",
+      "published_payload_sha256": "942c3b40facfa34a0774fc839f55b12392410ea1be343138e08e3664bb886252",
+      "gzip_sha256": "f19f54f5cd3f5682f74645bc750e0bab8793005b8fe9687b545e327e6efd2457",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "wifi-discovered-uart-setup.log.gz.gz",
+      "original_sha256": "0ea3ab35683a138e5f1714a2069e95dafdebc23550f3c800b6645747d70650af",
+      "published_payload_sha256": "0ea3ab35683a138e5f1714a2069e95dafdebc23550f3c800b6645747d70650af",
+      "gzip_sha256": "8152a1ce20f0ee63f2897cfc72a8766f4b15cecad021f246b6b2841e284ddb6b",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "wifi-literal-manual-uart-cold.log.gz.gz",
+      "original_sha256": "6824c79ea4455744a4341899c5031fbb3f58194cfb7dadaf805d0f75cbc54181",
+      "published_payload_sha256": "6824c79ea4455744a4341899c5031fbb3f58194cfb7dadaf805d0f75cbc54181",
+      "gzip_sha256": "60c63e223bb06e75e9cb3934eb0d8f819f81b093674864dc722baec6fffec5d6",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "wifi-literal-manual-uart-setup.log.gz.gz",
+      "original_sha256": "9530e0970f6bd916e421244835b25bcca0ca2fb404f8485fb277d68e08747d23",
+      "published_payload_sha256": "9530e0970f6bd916e421244835b25bcca0ca2fb404f8485fb277d68e08747d23",
+      "gzip_sha256": "379c642a13a99d1f7230364fa352dfe7b9a7bf036c3759ba571aedbedc0c9652",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "wifi-manual-entry-uart-cold.log.gz.gz",
+      "original_sha256": "47b86a3392338cb55fa7bcd95dea5d8d298f7d4e4ad710aae68d0e4002381e4b",
+      "published_payload_sha256": "47b86a3392338cb55fa7bcd95dea5d8d298f7d4e4ad710aae68d0e4002381e4b",
+      "gzip_sha256": "acf213c91afa1605c7198b4d25bed827393ff120e6fe6f844c163e246cc43c0b",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "wifi-manual-entry-uart-setup.log.gz.gz",
+      "original_sha256": "497e0f5433559d2b0b495646e570d739efc923d8ca838764c81cf415b3bf15f3",
+      "published_payload_sha256": "497e0f5433559d2b0b495646e570d739efc923d8ca838764c81cf415b3bf15f3",
+      "gzip_sha256": "2735f689f8f926320b12d086bae9d96bdc6477d01459e405a57eabfe13afb885",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "library-final-report.json.gz",
+      "original_sha256": "46d279fe120e91c5645cf31be4d3e3ba5cff329709b379157097928650c56480",
+      "published_payload_sha256": "46d279fe120e91c5645cf31be4d3e3ba5cff329709b379157097928650c56480",
+      "gzip_sha256": "d163cfc0ade950e4b7ccd0b4cdb3827f021f38db7413f12c6803b46ec420ccd4",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "library-final-tests.log.gz",
+      "original_sha256": "5b9f06e35285602086ce4ca2dd9a142ffe7cf1088d18f14473ebeada32a082b3",
+      "published_payload_sha256": "5b9f06e35285602086ce4ca2dd9a142ffe7cf1088d18f14473ebeada32a082b3",
+      "gzip_sha256": "3a0edb4104a710a8435bbd138db944f58ca5ec6d03060e0af590f37ea8970ed0",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "library-final-compile.log.gz",
+      "original_sha256": "3ee5442c81c4b1d84734e95420c83c8b0e8a669c5f79e18e4368f50fa43993fd",
+      "published_payload_sha256": "3ee5442c81c4b1d84734e95420c83c8b0e8a669c5f79e18e4368f50fa43993fd",
+      "gzip_sha256": "da8380d651f18991b5eb3761b2e19a7f31482313bc31afc87e86f1eb9bd2d949",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "library-fresh-report.json.gz",
+      "original_sha256": "090bd64befb41fa6343489edf0a9af3ab8a66887e5219cde60e87e382efdcc62",
+      "published_payload_sha256": "090bd64befb41fa6343489edf0a9af3ab8a66887e5219cde60e87e382efdcc62",
+      "gzip_sha256": "4f62c4380f4aa737ccb45342b741c9655fa44b95a5634004f361af96e7c1f93d",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "library-fresh-tests.log.gz",
+      "original_sha256": "b220ca13b2726dfc4b4dea849d40f19a5b4e46d1298f3ed36ee9435137d87532",
+      "published_payload_sha256": "b220ca13b2726dfc4b4dea849d40f19a5b4e46d1298f3ed36ee9435137d87532",
+      "gzip_sha256": "9bf7ffff9ed4ee4eb3ec0c73514cbf7f8a283c8d9d7bc2bdf46c6ab7ffc2f86e",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "library-fresh-compile.log.gz",
+      "original_sha256": "3ee5442c81c4b1d84734e95420c83c8b0e8a669c5f79e18e4368f50fa43993fd",
+      "published_payload_sha256": "3ee5442c81c4b1d84734e95420c83c8b0e8a669c5f79e18e4368f50fa43993fd",
+      "gzip_sha256": "da8380d651f18991b5eb3761b2e19a7f31482313bc31afc87e86f1eb9bd2d949",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "ports-migration-report.json.gz",
+      "original_sha256": "9130fb54be8d478dfa4f34e03f50eaf534bc72fa05c2556d227880f6455ffabc",
+      "published_payload_sha256": "9130fb54be8d478dfa4f34e03f50eaf534bc72fa05c2556d227880f6455ffabc",
+      "gzip_sha256": "47d1039e58742b0d002af793a4a2132b226de1a56e8d3ca9113f460308a52603",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "ports-migration-first.migration.gz",
+      "original_sha256": "d81b06a0a4213ea9b9aea33e4bdc171fad305ce1dacf7743591eb8d65edfc86a",
+      "published_payload_sha256": "d81b06a0a4213ea9b9aea33e4bdc171fad305ce1dacf7743591eb8d65edfc86a",
+      "gzip_sha256": "51b0ec21d8f13a748c0754cff9a72427ae91d18fdd7a300b78fc7c6fb1f83192",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "ports-migration-second.migration.gz",
+      "original_sha256": "58b9b22fc94d547fd480dc727961995a0ecf55a5ca6523df46ca0eb8be27994f",
+      "published_payload_sha256": "58b9b22fc94d547fd480dc727961995a0ecf55a5ca6523df46ca0eb8be27994f",
+      "gzip_sha256": "25e7c94d04ee8af4b7b1af1acf0400a8d3d2dd1106a0f2fdbfae2cf6fbf64c11",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "ports-migration-source.log.gz",
+      "original_sha256": "60fbddff67cfda0e3c3ea3e639233f56fe978a302dbb7994cdb7a4607e4e87f5",
+      "published_payload_sha256": "60fbddff67cfda0e3c3ea3e639233f56fe978a302dbb7994cdb7a4607e4e87f5",
+      "gzip_sha256": "fd41ddbfcf44a13f239b7047e823303989b2ba34ed17490065ff236cab7cfa8b",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "ports-migration-target.log.gz",
+      "original_sha256": "60fbddff67cfda0e3c3ea3e639233f56fe978a302dbb7994cdb7a4607e4e87f5",
+      "published_payload_sha256": "60fbddff67cfda0e3c3ea3e639233f56fe978a302dbb7994cdb7a4607e4e87f5",
+      "gzip_sha256": "fd41ddbfcf44a13f239b7047e823303989b2ba34ed17490065ff236cab7cfa8b",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "binary-migration-fixed-v2-report.json.gz",
+      "original_sha256": "a14cfcd9e7f28d7c7a88d0424b5760bf0fc8eefa2e3d6039bdb9e76aef0c7997",
+      "published_payload_sha256": "a14cfcd9e7f28d7c7a88d0424b5760bf0fc8eefa2e3d6039bdb9e76aef0c7997",
+      "gzip_sha256": "c4f44d8ec9ab5c9df3bb64c247d6c0684d9a917aac25373ca0526b7e70bd9899",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "binary-migration-fixed-v2-source.log.gz",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "published_payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "binary-migration-fixed-v2-target.log.gz",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "published_payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "binary-migration-fixed-v2-state.migration.gz",
+      "original_sha256": "a5174a0cd99570911b86ae8549820c239236d1a135e86e1cd4a067bc6502e724",
+      "published_payload_sha256": "a5174a0cd99570911b86ae8549820c239236d1a135e86e1cd4a067bc6502e724",
+      "gzip_sha256": "b7da0b3746055823ee8347f513bf2d8b433140caa67698d8364382e81b8176ec",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "binary-migration-control-v2-report.json.gz",
+      "original_sha256": "0e271ecc1c9dddd86393c7b66af44a32f484e3cc60a3d654a39893787e88c859",
+      "published_payload_sha256": "0e271ecc1c9dddd86393c7b66af44a32f484e3cc60a3d654a39893787e88c859",
+      "gzip_sha256": "c9a9589325c4f8148036f311d78012cfed1834dcb793aca554499c8f0cc23c86",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "binary-migration-control-v2-source.log.gz",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "published_payload_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzip_sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "binary-migration-control-v2-target.log.gz",
+      "original_sha256": "50003b656070907e030431ed0ab81d2f5e457fb6836ffa4595fbfa0f68b8da69",
+      "published_payload_sha256": "50003b656070907e030431ed0ab81d2f5e457fb6836ffa4595fbfa0f68b8da69",
+      "gzip_sha256": "d8567c0a97b48d6721370ebc6b09f3e3e500ab4d6c68ef349baae3656c5fe041",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "binary-migration-control-v2-state.migration.gz",
+      "original_sha256": "f336cb58917a4f44ba81591d179c68ae2d1506f168d544a4874a4fa868f6ee7e",
+      "published_payload_sha256": "f336cb58917a4f44ba81591d179c68ae2d1506f168d544a4874a4fa868f6ee7e",
+      "gzip_sha256": "febcf679f786ff3ca00ae5d424117ff3aa29d4c55621836c47f0733027a523ba",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-c3_modular-qemu.log.gz",
+      "original_sha256": "1cfa508d159316155d439536a685a017df2e6bde4669e2fa24923869ad828f14",
+      "published_payload_sha256": "1cfa508d159316155d439536a685a017df2e6bde4669e2fa24923869ad828f14",
+      "gzip_sha256": "80902b9e10a36722eea8b4aecc839d0de81126d488030c6c190e26df3c2d6f0d",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-c3_modular-uart.log.gz",
+      "original_sha256": "feaf931faac157b8cc725abe45cfedb82848a5b099c3c931a44cd1c4cd5e60f0",
+      "published_payload_sha256": "feaf931faac157b8cc725abe45cfedb82848a5b099c3c931a44cd1c4cd5e60f0",
+      "gzip_sha256": "7c55f012233b0f0b189ad135e1d41c3feb1f82417cc165a2af54ae2c8a29b6ae",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-c3_oled-qemu.log.gz",
+      "original_sha256": "1cfa508d159316155d439536a685a017df2e6bde4669e2fa24923869ad828f14",
+      "published_payload_sha256": "1cfa508d159316155d439536a685a017df2e6bde4669e2fa24923869ad828f14",
+      "gzip_sha256": "80902b9e10a36722eea8b4aecc839d0de81126d488030c6c190e26df3c2d6f0d",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-c3_oled-uart.log.gz",
+      "original_sha256": "feaf931faac157b8cc725abe45cfedb82848a5b099c3c931a44cd1c4cd5e60f0",
+      "published_payload_sha256": "feaf931faac157b8cc725abe45cfedb82848a5b099c3c931a44cd1c4cd5e60f0",
+      "gzip_sha256": "7c55f012233b0f0b189ad135e1d41c3feb1f82417cc165a2af54ae2c8a29b6ae",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-cyd_final-qemu.log.gz",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "published_payload_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "gzip_sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-cyd_final-uart.log.gz",
+      "original_sha256": "3768b828001d70b4672fe30c668c7c15ced62a0221ce3cf701e408357a6f2b97",
+      "published_payload_sha256": "3768b828001d70b4672fe30c668c7c15ced62a0221ce3cf701e408357a6f2b97",
+      "gzip_sha256": "570e7d7016064dc3ad7a34b64b9cd8028b643c8d6d4d2f98cc06a10d03159cbf",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-cyd_original20b-qemu.log.gz",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "published_payload_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "gzip_sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-cyd_original20b-uart.log.gz",
+      "original_sha256": "7d0ee9b396164a0bb5bf4efca21d697cf68f4dd7842073da93540212ea63fd6c",
+      "published_payload_sha256": "7d0ee9b396164a0bb5bf4efca21d697cf68f4dd7842073da93540212ea63fd6c",
+      "gzip_sha256": "81359c5abf8011842226ef7837a7f9922567ba603df4da78a359541a5afab60b",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-cyd_sameconfig_control-qemu.log.gz",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "published_payload_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "gzip_sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-cyd_sameconfig_control-uart.log.gz",
+      "original_sha256": "d983383a33e5ef2e17914d31cb295e9efd8a2a7edd5a59e885d055304a641af1",
+      "published_payload_sha256": "d983383a33e5ef2e17914d31cb295e9efd8a2a7edd5a59e885d055304a641af1",
+      "gzip_sha256": "6e59d0cadb3b3c161006b453e0dcee3d255559439f31efabe5506dd9d4cd481a",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "legacy-report.json.gz",
+      "original_sha256": "8e4a5e75e31f1f3416d4b8e38065128281fa6250ece785a8e7a89a5ee965b0bd",
+      "published_payload_sha256": "8e4a5e75e31f1f3416d4b8e38065128281fa6250ece785a8e7a89a5ee965b0bd",
+      "gzip_sha256": "278c75ce07def00f35ada0821b662b4bc3fcd356b47c31e3117e7becf249e00f",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "hostfwd-ports-v3-packets-20261018.json.gz",
+      "original_sha256": "905e15c19517fc497368934c057a22c3913b0707d03a035d10c91a2a9240b505",
+      "published_payload_sha256": "905e15c19517fc497368934c057a22c3913b0707d03a035d10c91a2a9240b505",
+      "gzip_sha256": "bac9616f63f7a2facea485063475b1b48f6a39f4c6b69411111f28d49d63ab5c",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "hostfwd-ports-v3-flash-20261018.json.gz",
+      "original_sha256": "c739d123640ecdcca5a5dec0298ef96882b272faefaa9a0d8be6c25058ab7baa",
+      "published_payload_sha256": "2af8cf053576ad36a8e2469f44f32ea13be96f87ab7b7e0dcdbfa8f15efc25a8",
+      "gzip_sha256": "aafc025e4afd40fc2ba56fb809ad7b72ce8a005940615bdedbc600c1ca41da73",
+      "host_account_paths_normalized": true
+    },
+    {
+      "file": "hostfwd-ports-v3-flash-retry-20261018-report.json.gz",
+      "original_sha256": "1b6131e64e4b4e1ac54de62512d063c919010de8bc99176d178fff407b32afc5",
+      "published_payload_sha256": "1b6131e64e4b4e1ac54de62512d063c919010de8bc99176d178fff407b32afc5",
+      "gzip_sha256": "aaa2736e857c16ac4a3cd97c930b2a752f7b46ed56be6c159d724b3d9e39e914",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "hostfwd-ports-v3-modules-20261018-modular-report.json.gz",
+      "original_sha256": "6778b577fe2bc3cda14257f4fed624da548ea55be7371866985dc98202dfbbe9",
+      "published_payload_sha256": "6778b577fe2bc3cda14257f4fed624da548ea55be7371866985dc98202dfbbe9",
+      "gzip_sha256": "3f9af37eca2d1112465aee95f7e7ef93f28f0c8fe5113b937ed11965a15ac897",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "hostfwd-ports-v3-tools-unit-20261018.log.gz",
+      "original_sha256": "31b87afc3459e944960b95116e277da7e9a419dfa90ee4cf372c810c71d186c2",
+      "published_payload_sha256": "b037b9f4582549029e9500d27d74b4428bce842ea13683508ed7a55f805cd16c",
+      "gzip_sha256": "250fb20d219e0316746e232f8187e2ddae3931d9f4dfaf49e80b05178bc92865",
+      "host_account_paths_normalized": true
+    },
+    {
+      "file": "hostfwd-ports-v3-tools-unit-retry-20261018.log.gz",
+      "original_sha256": "d5798ab27870d1a9b41334191d27a8ec58d7f41f08b80e44d107d24193f5645a",
+      "published_payload_sha256": "d5798ab27870d1a9b41334191d27a8ec58d7f41f08b80e44d107d24193f5645a",
+      "gzip_sha256": "9e09f9648bb4526dbba6cf2d28fff4f282cf8641d8421a14a3dd4b19021bf360",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "hostfwd-wrap-v3-source-audit-20261018.json.gz",
+      "original_sha256": "f731970e66372263db24ed511772107533f7831c8c198f8a3e8e264699f5fa90",
+      "published_payload_sha256": "f731970e66372263db24ed511772107533f7831c8c198f8a3e8e264699f5fa90",
+      "gzip_sha256": "d10391e5c9905e15649ca3e87a1885cc040a89c66302ed8d4aacad7a8c5b813d",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "hostfwd-wrap-v3-20261018.log.gz",
+      "original_sha256": "5069f170487fc7bc0629e19de7e87d5acdd69cd06662a43d3d6fa5a814255f49",
+      "published_payload_sha256": "5069f170487fc7bc0629e19de7e87d5acdd69cd06662a43d3d6fa5a814255f49",
+      "gzip_sha256": "52732232080833b1922d5d517388afb343901e4ed74d9500b7e30eeba4eee1f0",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "qemu-migration-binary-build-20261018.log.gz",
+      "original_sha256": "91730e4d9b21f1c4d0efe1e3b25d13219a69d7ff3343d7e8af4257ab5b611036",
+      "published_payload_sha256": "91730e4d9b21f1c4d0efe1e3b25d13219a69d7ff3343d7e8af4257ab5b611036",
+      "gzip_sha256": "c2e1ac1fb67b39781382002e8fb42d7fad8887bdd4f4a661d7ab9101cdc83651",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "qemu-hostfwd-ports-restored-build-20261018.log.gz",
+      "original_sha256": "8a7a00f92b79708075f8bcdb3659b4b731af42e560192f286b6666c83b854248",
+      "published_payload_sha256": "8a7a00f92b79708075f8bcdb3659b4b731af42e560192f286b6666c83b854248",
+      "gzip_sha256": "013d65c15da39f1cbd9d3673ec3e0c20a6cf791494a80785ef450b2123de1039",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "qemu-hostfwd-ports-restored-v2-build-20261018.log.gz",
+      "original_sha256": "7240e46f77c8265243d67c528d0ad7d2422414ca54fe414cf05a4ead7a4f88cb",
+      "published_payload_sha256": "7240e46f77c8265243d67c528d0ad7d2422414ca54fe414cf05a4ead7a4f88cb",
+      "gzip_sha256": "7245facc0aa15b8b555de9ba63e463d95cfcff34dab49a3c6db3d61a9ab829e3",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "hostfwd-port-v2-tcp-connect.asm.gz",
+      "original_sha256": "2b40ccd586f7added86d4ad52d4382344bb1d5dd2a1393416bad0d180170c0ee",
+      "published_payload_sha256": "2b40ccd586f7added86d4ad52d4382344bb1d5dd2a1393416bad0d180170c0ee",
+      "gzip_sha256": "762bd2f32f5da4a7796e001132351ea7bacec576b0a4fdaecb060f3452f6d5bf",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "hostfwd-invalid-duplicates-cleanup-20261018.json.gz",
+      "original_sha256": "70ea16acc1f13ea2b1c537afa1abd22a2db186bd189d5e7d1cc3c46b01d79180",
+      "published_payload_sha256": "70ea16acc1f13ea2b1c537afa1abd22a2db186bd189d5e7d1cc3c46b01d79180",
+      "gzip_sha256": "62b563b09a89284f7e30e741178f42e7b934ea529aaf969477a9960c7a652893",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "invalid-stale-restore.json.gz",
+      "original_sha256": "991c6c88ad6dd999c86e84853e01d657966896dd4169025d0ad17db6010f2171",
+      "published_payload_sha256": "991c6c88ad6dd999c86e84853e01d657966896dd4169025d0ad17db6010f2171",
+      "gzip_sha256": "fed145f55c4a1171c33f1d22c0a8d34c470fe0f5172da95b38fd4bcade8a0a58",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "build-config-host.h.gz",
+      "original_sha256": "a44e76ec897f375322c26d787af284997cdc7790c7baf1fd645d9d136b479a8f",
+      "published_payload_sha256": "a44e76ec897f375322c26d787af284997cdc7790c7baf1fd645d9d136b479a8f",
+      "gzip_sha256": "63024437f1c33f57499d12461a88e16c0cc87ed13cc84c8697498e755a86626f",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "build-config.status.gz",
+      "original_sha256": "01903d83f86300d45575f8f153156074e7706bfe57b8c38d1aa6e3fdf2f9893b",
+      "published_payload_sha256": "01903d83f86300d45575f8f153156074e7706bfe57b8c38d1aa6e3fdf2f9893b",
+      "gzip_sha256": "e74efdfef46804091e5c3d8fd35f33cc34e6c794669be634e248e47b103f1089",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "build-meson-info-intro-buildoptions.json.gz",
+      "original_sha256": "e287eb008bd3d8e089aa747fbfc1f123dd043217be98839fbb16c4ef5116213a",
+      "published_payload_sha256": "e287eb008bd3d8e089aa747fbfc1f123dd043217be98839fbb16c4ef5116213a",
+      "gzip_sha256": "3f0816a319d72e7e42e9e51c7328862cc2b21f6a8058c39877004153e260af07",
+      "host_account_paths_normalized": false
+    },
+    {
+      "file": "build-qemu-version.h.gz",
+      "original_sha256": "8986366d591f45aa0969912d41b06899bb80c6612026e3f395c204d13666296f",
+      "published_payload_sha256": "8986366d591f45aa0969912d41b06899bb80c6612026e3f395c204d13666296f",
+      "gzip_sha256": "d87b2a61f7e1021c4317fe6dcca23762870c850261a0744a21a80edb9c4bc605",
+      "host_account_paths_normalized": false
+    }
+  ]
+}
