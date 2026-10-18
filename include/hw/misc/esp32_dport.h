@@ -72,6 +72,8 @@ typedef struct Esp32DportState {
     bool appcpu_clkgate_state;
     uint32_t appcpu_boot_addr;
     uint32_t cpuperiod_sel;
+    uint32_t wifi_clk_en_reg;
+    uint32_t wifi_rst_en_reg;
     uint32_t cache_ill_trap_en_reg;
     uint32_t slave_spi_config_reg;
 
@@ -126,6 +128,11 @@ REG32(DPORT_APP_CACHE_CTRL1, 0x5C)
 REG32(DPORT_SLAVE_SPI_CONFIG, 0xC8)
     FIELD(DPORT_SLAVE_SPI_CONFIG, SLAVE_SPI_ENCRYPT_ENABLE, 8, 1)
     FIELD(DPORT_SLAVE_SPI_CONFIG, SLAVE_SPI_DECRYPT_ENABLE, 12, 1)
+
+/* ESP32 TRM 12.21/12.22; IDF calls the reset word CORE_RST_EN. */
+#define ESP32_WIFI_CLK_EN_RESET 0xfffce030U
+REG32(DPORT_WIFI_CLK_EN, 0xcc)
+REG32(DPORT_WIFI_RST_EN, 0xd0)
 
 REG32(DPORT_CPU_INTR_FROM_CPU_0, 0xdc)
 REG32(DPORT_CPU_INTR_FROM_CPU_1, 0xe0)
