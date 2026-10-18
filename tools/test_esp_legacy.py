@@ -17,6 +17,18 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def cyd_application_checks(uart, pixels, width, height):
+    """Reject ROM-only/console-only startup as evidence of a working CYD app."""
+    # FIXED_TEST: the old nonzero count included the UART area below the panel.
+    # network.begin is printed before PHY init and does not establish readiness.
+    return {
+        'application_startup_reached': any(marker in uart for marker in
+            ('Running in AP mode', 'netserver.begin')),
+        'lcd_panel_has_content': sum(value != 0 for value in pixels[:width * min(height, 240) * 3]) > 1000,
+        'framebuffer_size_valid': len(pixels) == width * height * 3,
+    }
+
+
 def run_guest(exe, build, machine, state, rom, seconds, profile=None):
     state.mkdir(parents=True, exist_ok=True)
     manifest = json.loads((build / 'flasher_args.json').read_text())
@@ -77,6 +89,8 @@ def run_guest(exe, build, machine, state, rom, seconds, profile=None):
             'source_flash_unchanged': sha(image) == before,
             'source_artifacts_unchanged': all(sha(build / name) == value for name, value in sources.items()),
         }
+        if machine.split(',')[0] == 'esp32':
+            checks.update(cyd_application_checks(uart, pixels, width, height))
         report = {'passed': all(checks.values()), 'checks': checks,
                   'hardware_profile': hardware,
                   'machine': machine, 'duration_seconds': seconds,
@@ -84,7 +98,7 @@ def run_guest(exe, build, machine, state, rom, seconds, profile=None):
                   'pixel_sha256': hashlib.sha256(pixels).hexdigest(),
                   'nonzero_bytes': sum(value != 0 for value in pixels),
                   'lcd_area_nonzero_bytes': sum(value != 0 for value in pixels[:width * min(height, 240) * 3]),
-                  'cyd_boot_scope': 'Boot, console and panic checks; LCD transactions are verified separately by QTest' if machine.startswith('esp32,') else None}
+                  'cyd_boot_scope': 'Bounded application/panel startup and panic checks; RF/networking functionality needs separate evidence' if machine.startswith('esp32,') else None}
         save_json(state / 'report.json', report)
         return report
     finally:
