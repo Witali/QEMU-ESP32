@@ -2,4 +2,4 @@
 url = https://github.com/qemu/libslirp.git
 revision = dd76415fce457e319d665eb8210d05c5731360ba
 depth = 1
-diff_files = slirp-win32-subproject.diff, slirp-win32-listen.diff
+diff_files = slirp-win32-subproject.diff, slirp-win32-listen.diff, slirp-win32-hostfwd-ports.diff
