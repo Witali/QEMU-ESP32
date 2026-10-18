@@ -1,0 +1,479 @@
+{
+  "status": "specified_clock_latches_pass_cyd_still_open",
+  "passed": true,
+  "all_functionality_verified": false,
+  "cyd_accepted": false,
+  "captured_utc": "2026-10-18T16:02:44.988911+00:00",
+  "clock_implementation_commit": "b3619c8b4b",
+  "boot_evidence_implementation_commit": "2924ab54d2",
+  "specification": {
+    "url": "https://www.espressif.com/sites/default/files/documentation/esp32_technical_reference_manual_en.pdf",
+    "version": "5.8",
+    "sections": [
+      "12.3.7",
+      "12.5"
+    ],
+    "registers": [
+      "12.21",
+      "12.22"
+    ]
+  },
+  "mmio": {
+    "control": {
+      "passed": false,
+      "failed_tests": 4,
+      "errors": 0
+    },
+    "fixed": {
+      "passed": true,
+      "tests": 4
+    },
+    "same_final_test": true
+  },
+  "binaries": {
+    "riscv_unchanged": "d64f3013739f22b986e07aed39395b25bde474f52ef813b8ffaeedb0991edecc",
+    "xtensa_fixed": "2099ed932f39589f703645708a411547cd0e9697002c658c40a316bbbba60412",
+    "xtensa_control": "cd1163c34b8591ca5a2769703aadc317d724237abe9ca70e7700ba658c415ba3"
+  },
+  "regressions": {
+    "spi_nor": {
+      "passed": true,
+      "groups": 11,
+      "socs": [
+        "esp32c2",
+        "esp32c3",
+        "esp32"
+      ]
+    },
+    "modular_peripherals": true,
+    "tool_unit_tests": 16,
+    "cyd_negative_unit_controls": 5
+  },
+  "next_fault": {
+    "scope": "Exact first-read identification only; not a complete PHY emulation or algorithm equivalence proof.",
+    "app_sha256": "22feeb1abb79eaf66ea3e36b3030242c0c8dbd0502ae8caeb628268ad3082f13",
+    "full_flash_sha256": "42322762fabf61e84833418e4ff51e02bbb8ab6d9deb29328508c1e7db4c30c0",
+    "library_sha256": "c2521071695734afa8f6f1ca3d3b604a1d08dd63fe52060449a11cfe8bac5740",
+    "library_member": "phy_chip_v7.o",
+    "member_sha256": "26a28cb047f7eaae5d77ea5083b684d2e072c0e118b1abe171509c500ce6578b",
+    "versions": [
+      "lib-builder: master 14a0af9",
+      "esp-idf: v5.5.4 735507283d",
+      "arduino: idf-v5.5.4 c6428be92"
+    ],
+    "versions_sha256": "1b15adcda374a653a9794512315b554d4f78682341888a8ac9155b7f569e5cd9",
+    "objdump_sha256": "fc0096c4c8106da247498c4c97c126360d47d3dd701e73c6daa06da854c73a6a",
+    "function": "register_chipv7_phy",
+    "linked_entry": "0x401b9914",
+    "fault_pc": "0x401b9920",
+    "fault_instruction": "l32i.n a5, a5, 0",
+    "fault_address": "0x60033c00",
+    "library_entry_offset": "0xa8",
+    "library_function_size": 691,
+    "entry_match": {
+      "linked": "3601025120f6404074c020005805",
+      "library": "36010251d6ff404074c020005805",
+      "ignored_offsets": [
+        4,
+        5
+      ],
+      "reason": "l32r literal relocation"
+    },
+    "apb_alias": "0x3ff73c00",
+    "alias_basis": "Existing esp32_soc_add_peripheral mapping: 0x60000000 corresponds to 0x3ff40000.",
+    "next_step": "Classic ESP32 board has OpenETH but no Wi-Fi MAC/PHY device at this address. Restore a specified PHY/MAC path rather than interpreting the failure as a host-forward regression.",
+    "evidence": {
+      "linked-register-chipv7-phy.asm": "42514ae00f9142bf6ac319f60d57b85bc2a2f018a94711f85bf6263f24222dbc",
+      "sdk-register-chipv7-phy.asm": "886e4018efe05eaa007a3bcf9e8a1b272fd6fe6077a7e00a999b5ba36b5d5ff7"
+    }
+  },
+  "historical_boots": {
+    "original20b": {
+      "passed": false,
+      "all_functionality_verified": false,
+      "scope": "Observe a real CYD image through matching boot stages; reject stalled startup.",
+      "limitations": "Bounded AP/server and framebuffer startup checkpoint with NIC disabled, not RF accuracy, station networking or full board acceptance.",
+      "inputs_sha256": {
+        "C:\\Work\\QEMU-ESP32\\.worktree\\hostfwd-backlog\\tools\\esp32_cyd_boot_test.py": "7ca5893fd69c61d1d6fcd5015e6c3c14075fb10a69dde86417fa4bdd8f655550",
+        "C:\\Work\\QEMU-ESP32\\.worktree\\flash-write-audit\\bin\\qemu-system-xtensa.exe": "1845328f2f5c4424bd7a6fdd8b36ef36eedb9e4cf69a2ee188eb45932fa463e1",
+        "C:\\Work\\yoRadio\\firmware\\0.9.723\\dac\\full.bin": "42322762fabf61e84833418e4ff51e02bbb8ab6d9deb29328508c1e7db4c30c0",
+        "C:\\Work\\QEMU-ESP32\\.worktree\\hostfwd-backlog\\tools\\small_tv_vm.py": "6b7ff9969e16fe3427c9789994761478d623aecbbead160f34041863a2fc2eae"
+      },
+      "command": [
+        "C:\\Work\\QEMU-ESP32\\.worktree\\flash-write-audit\\bin\\qemu-system-xtensa.exe",
+        "-M",
+        "esp32,st7789=on,sdspi=on",
+        "-L",
+        "C:\\Work\\QEMU-ESP32\\.worktree\\hostfwd-backlog\\pc-bios",
+        "-drive",
+        "file=C:\\Work\\yoRadio\\.build\\cyd-boot-stage-original20b-20261018\\flash.bin,if=mtd,format=raw",
+        "-snapshot",
+        "-nic",
+        "none",
+        "-name",
+        "cyd-stage-a727fbf4d133",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-serial",
+        "file:C:\\Work\\yoRadio\\.build\\cyd-boot-stage-original20b-20261018\\uart.log",
+        "-qmp",
+        "tcp:127.0.0.1:53291,server=on,wait=off"
+      ],
+      "milestones": {
+        "rom_entry": 0.516
+      },
+      "outcome": "required_boot_stage_not_reached",
+      "pid": 34856,
+      "panel_nonzero_bytes": 0,
+      "framebuffer_sha256": "4afa1d8c3cb4023eef448bc04e36e1ae6b4568da007c43777935b32a1ea995d7",
+      "dimensions": [
+        320,
+        284
+      ],
+      "wall_seconds": 180.078,
+      "inputs_unchanged": true,
+      "backing_flash_unchanged": true
+    },
+    "corrected_clock": {
+      "passed": false,
+      "all_functionality_verified": false,
+      "scope": "Observe a real CYD image through matching boot stages; reject stalled startup.",
+      "limitations": "Bounded AP/server and framebuffer startup checkpoint with NIC disabled, not RF accuracy, station networking or full board acceptance.",
+      "inputs_sha256": {
+        "C:\\Work\\QEMU-ESP32\\.worktree\\hostfwd-backlog\\tools\\esp32_cyd_boot_test.py": "7ca5893fd69c61d1d6fcd5015e6c3c14075fb10a69dde86417fa4bdd8f655550",
+        ".cache\\esp32-phy-clock\\bin\\qemu-system-xtensa.exe": "2099ed932f39589f703645708a411547cd0e9697002c658c40a316bbbba60412",
+        "C:\\Work\\yoRadio\\firmware\\0.9.723\\dac\\full.bin": "42322762fabf61e84833418e4ff51e02bbb8ab6d9deb29328508c1e7db4c30c0",
+        "C:\\Work\\QEMU-ESP32\\.worktree\\hostfwd-backlog\\tools\\small_tv_vm.py": "6b7ff9969e16fe3427c9789994761478d623aecbbead160f34041863a2fc2eae"
+      },
+      "command": [
+        "C:\\Work\\QEMU-ESP32\\.worktree\\hostfwd-backlog\\.cache\\esp32-phy-clock\\bin\\qemu-system-xtensa.exe",
+        "-M",
+        "esp32,st7789=on,sdspi=on",
+        "-L",
+        "C:\\Work\\QEMU-ESP32\\.worktree\\hostfwd-backlog\\pc-bios",
+        "-drive",
+        "file=C:\\Work\\yoRadio\\.build\\cyd-boot-stage-fixed-clock-20261018\\flash.bin,if=mtd,format=raw",
+        "-snapshot",
+        "-nic",
+        "none",
+        "-name",
+        "cyd-stage-aa14af51a981",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-serial",
+        "file:C:\\Work\\yoRadio\\.build\\cyd-boot-stage-fixed-clock-20261018\\uart.log",
+        "-qmp",
+        "tcp:127.0.0.1:53324,server=on,wait=off"
+      ],
+      "milestones": {
+        "rom_entry": 0.531,
+        "app_banner": 2.109,
+        "display_init": 5.593,
+        "network_begin": 5.953,
+        "panic": 6.281
+      },
+      "outcome": "boot_failure",
+      "pid": 26584,
+      "panel_nonzero_bytes": 0,
+      "framebuffer_sha256": "4afa1d8c3cb4023eef448bc04e36e1ae6b4568da007c43777935b32a1ea995d7",
+      "dimensions": [
+        320,
+        284
+      ],
+      "wall_seconds": 6.343,
+      "inputs_unchanged": true,
+      "backing_flash_unchanged": true
+    }
+  },
+  "source_hashes": {
+    "hw/misc/esp32_dport.c": {
+      "worktree_sha256": "ddef2de3d1c1b5bfd729c46578450aac333f2cd3fa74de9599fcaec49581d47a",
+      "git_lf_sha256": "ddef2de3d1c1b5bfd729c46578450aac333f2cd3fa74de9599fcaec49581d47a"
+    },
+    "include/hw/misc/esp32_dport.h": {
+      "worktree_sha256": "14a59fbc9228f703dd8c60bd094cc6cb1e9745e3520219e016f30811a7697b63",
+      "git_lf_sha256": "14a59fbc9228f703dd8c60bd094cc6cb1e9745e3520219e016f30811a7697b63"
+    },
+    "tests/esp32_phy_clock_test.py": {
+      "worktree_sha256": "a73cd0d75730ca83be596a13f01ff5e3636690671ecf6dabeee7b191344a37f9",
+      "git_lf_sha256": "a73cd0d75730ca83be596a13f01ff5e3636690671ecf6dabeee7b191344a37f9"
+    },
+    "tools/esp32_cyd_boot_test.py": {
+      "worktree_sha256": "7ca5893fd69c61d1d6fcd5015e6c3c14075fb10a69dde86417fa4bdd8f655550",
+      "git_lf_sha256": "7ca5893fd69c61d1d6fcd5015e6c3c14075fb10a69dde86417fa4bdd8f655550"
+    },
+    "tools/test_esp_legacy.py": {
+      "worktree_sha256": "bc8e8453f30db77657a740adc5f28d4cee787eb19bfccb67de674e3666fcbc60",
+      "git_lf_sha256": "bc8e8453f30db77657a740adc5f28d4cee787eb19bfccb67de674e3666fcbc60"
+    },
+    "tools/test_esp_legacy_checks.py": {
+      "worktree_sha256": "d33c9b5fdb717137d28cb1b9dec097e6fca0b983784064df7179657efc5e0629",
+      "git_lf_sha256": "d33c9b5fdb717137d28cb1b9dec097e6fca0b983784064df7179657efc5e0629"
+    }
+  },
+  "evidence": [
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-report.json.gz",
+      "sha256": "c0c759c75ca909a7384557e145a09e5d37fced14db7e5e03e3cf9a8416125596",
+      "original_sha256": "af588b5d45055447cbef49f59da8a6f2f73fdf0a1fa998ccf88cf23c0b5ab8e0",
+      "bytes": 3472
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-test_reset_latch_and_independent_clock__qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-test_reset_latch_and_independent_clock__qtest.log.gz",
+      "sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-test_reset_values__qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-test_reset_values__qtest.log.gz",
+      "sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-test_sdk_phy_clock_enable_sequence__qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-test_sdk_phy_clock_enable_sequence__qtest.log.gz",
+      "sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-test_system_reset_restores_gate_latches__qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018-test_system_reset_restores_gate_latches__qtest.log.gz",
+      "sha256": "79f3a562fe51ec53c7f7d73789db471f8c8ec22437bdd99742c855b50c30f034",
+      "original_sha256": "bbda5b92ab7a4d3812e3f2e0d73ca2c9c71c637ed99e78308471ca754facf5fc",
+      "bytes": 33747
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-report.json.gz",
+      "sha256": "f8cf0a7b0e8f9390412222c16f248f2adb70a7421cdfd7acde799231dda2c0bb",
+      "original_sha256": "9245760403c35ba4fcc89d3a76e4d429a0a15c4fb99422fc51bc869b02a7bbd9",
+      "bytes": 1749
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-test_reset_latch_and_independent_clock__qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-test_reset_latch_and_independent_clock__qtest.log.gz",
+      "sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-test_reset_values__qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-test_reset_values__qtest.log.gz",
+      "sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-test_sdk_phy_clock_enable_sequence__qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-test_sdk_phy_clock_enable_sequence__qtest.log.gz",
+      "sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-test_system_reset_restores_gate_latches__qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018-test_system_reset_restores_gate_latches__qtest.log.gz",
+      "sha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "file": "raw/cyd-boot-stage-original20b-20261018-qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/cyd-boot-stage-original20b-20261018-report.json.gz",
+      "sha256": "5ec5cd05b67d3fbf48435a8ca2332c208570b80e6a6e965b795af0713663a464",
+      "original_sha256": "a6c7ca9fa385ae7cf1cca4a114e660ec2e9159336366a429661b7a1589676ac0",
+      "bytes": 1916
+    },
+    {
+      "file": "raw/cyd-boot-stage-original20b-20261018-screen.ppm.gz",
+      "sha256": "d5f42a4f0987d5673ad230d23df91803665e920be46fba232857b9eecff6645b",
+      "original_sha256": "d75829a00bdf6487dd884bf384c0585f0d735cf433812a07843f8383535a7548",
+      "bytes": 272655
+    },
+    {
+      "file": "raw/cyd-boot-stage-original20b-20261018-uart.log.gz",
+      "sha256": "f21482d315506b03e3cacbf983a3331e9d6d3414c0ddbfe29999fd1606b2de20",
+      "original_sha256": "c69082f9700b0618658d37684bdb728394162af4071b012867264f8dc828b031",
+      "bytes": 601
+    },
+    {
+      "file": "raw/cyd-boot-stage-fixed-clock-20261018-qemu.log.gz",
+      "sha256": "ed91586bb19803f4a8bf1c9147fdd4f1c1b0ccb2f055c0450e7afaa6b619bd37",
+      "original_sha256": "9b84897e8a8cf208b80b43c2c8e5868a877c1971cf171cdbf76cdaebb34d7096",
+      "bytes": 25
+    },
+    {
+      "file": "raw/cyd-boot-stage-fixed-clock-20261018-report.json.gz",
+      "sha256": "ee7d746f33665e8355bb59739f72c7c189d671cea2a1db708285d55cd6c122e6",
+      "original_sha256": "9da9b37cffe360ee68623a9389a8621e82550d0f2369cde321a6ceff69baf898",
+      "bytes": 1991
+    },
+    {
+      "file": "raw/cyd-boot-stage-fixed-clock-20261018-screen.ppm.gz",
+      "sha256": "d5f42a4f0987d5673ad230d23df91803665e920be46fba232857b9eecff6645b",
+      "original_sha256": "d75829a00bdf6487dd884bf384c0585f0d735cf433812a07843f8383535a7548",
+      "bytes": 272655
+    },
+    {
+      "file": "raw/cyd-boot-stage-fixed-clock-20261018-uart.log.gz",
+      "sha256": "6c9662648ae77755180e0589efbdcb273aea91dac8aecdbd32009a5ecb96c813",
+      "original_sha256": "d52311aaff16f2a2d5df0699dae052f071be8eb9fedb6639b6b7943db61e0d41",
+      "bytes": 2637
+    },
+    {
+      "file": "raw/analysis-fault-identification.json.gz",
+      "sha256": "2003375cedb50974901716b7374761142e4b9eac888a45a148d23e4426100db8",
+      "original_sha256": "3a086950359fb8a0e2bbed18876bf917e1cd4093c0b51b5f19eb8bd000d172fe",
+      "bytes": 1805
+    },
+    {
+      "file": "raw/analysis-linked-register-chipv7-phy.asm.gz",
+      "sha256": "812c39af440c66e51b2c7cb493f7e6a2aa034fa96a3c4253e451c83a6690c4f0",
+      "original_sha256": "42514ae00f9142bf6ac319f60d57b85bc2a2f018a94711f85bf6263f24222dbc",
+      "bytes": 2485
+    },
+    {
+      "file": "raw/analysis-sdk-register-chipv7-phy.asm.gz",
+      "sha256": "b6a440dbae15ee8f1431e3d0da4613dfd526a34348aaa1b3dd6ba27f17e19b46",
+      "original_sha256": "886e4018efe05eaa007a3bcf9e8a1b272fd6fe6077a7e00a999b5ba36b5d5ff7",
+      "bytes": 21025
+    },
+    {
+      "file": "raw/analysis-segments.json.gz",
+      "sha256": "a8ab15f80f61b86f664eeae7b8958f3e85ced1037498be64225dbf4604f725af",
+      "original_sha256": "83089be4d304568348e8792db3239016f37e89c477afe059ed1dff1c2238f46b",
+      "bytes": 929
+    },
+    {
+      "file": "raw/analyze_cyd_phy.py.gz",
+      "sha256": "e497806e55999af257abc80adef0935d3d0aaffad0f8570ea215233ea512dac1",
+      "original_sha256": "0ad93443057544cf1e8723d8121e67fdee8032f43f3b1eb2e28429653cdc7f66",
+      "bytes": 4306
+    },
+    {
+      "file": "raw/esp32-phy-tools-current-unit-20261018.log.gz",
+      "sha256": "be1a1d823c2e69c41ab49a6e08b52803a405db27ae7914677185111084e552bc",
+      "original_sha256": "04cba2301e4582a6227e2132b2df5dcf43d3ac8a0ee62e2abb007ba7b0ba7915",
+      "bytes": 2234
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-control-20261018.log.gz",
+      "sha256": "3e26c736eecdcaf5b76e8c21590254f07f1a9fd5c7c74004d4aaea13a0c086c9",
+      "original_sha256": "7e49d02efacfb5a46985604a132587cdcecab8b74f632f19c3abcf66cbf4aa12",
+      "bytes": 2598
+    },
+    {
+      "file": "raw/esp32-phy-clock-current-fixed-20261018.log.gz",
+      "sha256": "3350d7ce27df01642bd4749194a4f5330e57dbe3213fc1731ab5e2d8cb9a6e9e",
+      "original_sha256": "b24748e73d15d7876b23b90d26989284351357d3c724eba454f105c9b161aa92",
+      "bytes": 487
+    },
+    {
+      "file": "raw/qemu-esp32-phy-clock-final-build-20261018.log.gz",
+      "sha256": "5b300f9902c2c508fa43ce2d2d6502d2c528d291b665b98c9c240fe2a7fa706e",
+      "original_sha256": "9a3e91023ba9674562c2dca465f1e9ef6a8e2d2095a8c842f1d56e262fb46080",
+      "bytes": 246
+    },
+    {
+      "file": "raw/esp32-phy-flash-regression-20261018-report.json.gz",
+      "sha256": "aaa2736e857c16ac4a3cd97c930b2a752f7b46ed56be6c159d724b3d9e39e914",
+      "original_sha256": "1b6131e64e4b4e1ac54de62512d063c919010de8bc99176d178fff407b32afc5",
+      "bytes": 403
+    },
+    {
+      "file": "raw/esp32-phy-modules-regression-20261018-modular-report.json.gz",
+      "sha256": "1538109dd2df1c7d54876be7fa829c6b3d62d9f8fe29656b03666ae7fd7b616c",
+      "original_sha256": "4d1c49220c32e2fadb0838281869cb232f01f938c1f962b1277b7fbe2434fc93",
+      "bytes": 1696
+    },
+    {
+      "file": "raw/source-hw__misc__esp32_dport.c.gz",
+      "sha256": "50cadb1ec7b0ab8ac5fc008782866a7d389cf147d223701d57a5e43a1c291daf",
+      "original_sha256": "ddef2de3d1c1b5bfd729c46578450aac333f2cd3fa74de9599fcaec49581d47a",
+      "bytes": 19431
+    },
+    {
+      "file": "raw/source-include__hw__misc__esp32_dport.h.gz",
+      "sha256": "f9897135bb2c45fe92246fe7928bda2bddbe6fd23024ca72d3255a601d16daa4",
+      "original_sha256": "14a59fbc9228f703dd8c60bd094cc6cb1e9745e3520219e016f30811a7697b63",
+      "bytes": 6682
+    },
+    {
+      "file": "raw/source-tests__esp32_phy_clock_test.py.gz",
+      "sha256": "31b8d33ab6d65856c2e98dd9a7ba96f9d4dd4d2e1f6082b535ef202be989448b",
+      "original_sha256": "a73cd0d75730ca83be596a13f01ff5e3636690671ecf6dabeee7b191344a37f9",
+      "bytes": 8026
+    },
+    {
+      "file": "raw/source-tools__esp32_cyd_boot_test.py.gz",
+      "sha256": "fe03034fd2a6e45ba5f6c0518d9382e55adeeeac9efc4921fbc8c952e0d09d32",
+      "original_sha256": "7ca5893fd69c61d1d6fcd5015e6c3c14075fb10a69dde86417fa4bdd8f655550",
+      "bytes": 5872
+    },
+    {
+      "file": "raw/source-tools__test_esp_legacy.py.gz",
+      "sha256": "8a03c4ec1501315834fd1e38e045927645671d5e8bcba5b398487a5dcd82a204",
+      "original_sha256": "bc8e8453f30db77657a740adc5f28d4cee787eb19bfccb67de674e3666fcbc60",
+      "bytes": 7283
+    },
+    {
+      "file": "raw/source-tools__test_esp_legacy_checks.py.gz",
+      "sha256": "55f41f878dfd78cadb66103bf1cf3276584998026d0655054511b402c66a69c2",
+      "original_sha256": "d33c9b5fdb717137d28cb1b9dec097e6fca0b983784064df7179657efc5e0629",
+      "bytes": 1828
+    }
+  ],
+  "scope": "Specified DPORT state and honest CYD boot evidence. Historical boot runs use their recorded older QMP helper; current MMIO controls use the current exact helper. No CYD Wi-Fi/RF, full-board or firmware parity acceptance."
+}
