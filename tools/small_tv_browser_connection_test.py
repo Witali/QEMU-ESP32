@@ -1,6 +1,6 @@
 """Observe owned guest sockets/real Chrome loads, varying only an extra probe connection."""
 from pathlib import Path
-import argparse,hashlib,json,re,struct,subprocess,sys,time
+import argparse,datetime as dt,hashlib,json,re,struct,subprocess,sys,time
 from types import SimpleNamespace
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--yoradio',type=Path,required=True)
@@ -101,7 +101,12 @@ try:
    line=process.stdout.readline()
    if not line:break
    event=json.loads(line)
-   with vm.QMP(session['qmp_port'],session['name']) as qmp:event['sockets']=snapshot(qmp)
+   event['observed_utc']=dt.datetime.now(dt.timezone.utc).isoformat()
+   with vm.QMP(session['qmp_port'],session['name']) as qmp:
+    event['sockets']=snapshot(qmp)
+    # Keep the host proxy state when a guest-visible request never arrived.
+    if event['phase']=='after-page':
+     event['user_network']=qmp.execute('human-monitor-command',**{'command-line':'info usernet'})
    report['samples'].append(event)
    if event['phase']=='after-page':print(event['round'],event['mode'],'errors',event['errors'],'sockets',len(event['sockets']),flush=True)
    process.stdin.write('continue\n');process.stdin.flush()
