@@ -1,0 +1,12 @@
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -34,7 +34,7 @@
+ glib_static = get_option('static')
+ 
+ if glib_static == true
+-  add_global_arguments('-static', language : 'c')
++  add_project_arguments('-static', language : 'c')
+ endif
+ 
+ if cc.get_argument_syntax() != 'msvc'

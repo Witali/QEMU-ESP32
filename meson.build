@@ -1217,9 +1217,16 @@ endif
 
 slirp = not_found
 if not get_option('slirp').auto() or have_system
-  slirp_dep = dependency('slirp', required: get_option('slirp'),
-                     method: 'pkg-config',
-                     static: true)
+  if host_os == 'windows' and get_option('prefer_static') and not get_option('slirp').disabled()
+    # Build the pinned Windows listener fix instead of the system's backlog-1 lib.
+    slirp_win32 = subproject('slirp-win32', default_options: ['default_library=static', 'static=true'])
+    slirp_dep = declare_dependency(dependencies: slirp_win32.get_variable('libslirp_libdep'),
+                                   version: slirp_win32.get_variable('version'))
+  else
+    slirp_dep = dependency('slirp', required: get_option('slirp'),
+                         method: 'pkg-config',
+                         static: true)
+  endif
 
   # https://gitlab.freedesktop.org/slirp/libslirp/-/merge_requests/134
   slirp_cflags = []
