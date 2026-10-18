@@ -113,6 +113,7 @@ typedef struct mac80211_frame {
     int signal_strength;
     int pos;
     int64_t delivery_ns;
+    bool softap_interface;
     struct mac80211_frame *next_frame;
 }  QEMU_PACKED mac80211_frame;
 

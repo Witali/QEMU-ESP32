@@ -29,7 +29,7 @@ def free_port():
 
 
 class Machine:
-    def __init__(self, properties=(), c2=False, trace=False):
+    def __init__(self, properties=(), c2=False, trace=False, wire_port=None):
         shift = 0x20000 if c2 else 0
         self.wifi = 0x60047000 if c2 else WIFI
         self.tx_desc, self.tx_data = TX_DESC + shift, TX_DATA + shift
@@ -55,6 +55,9 @@ class Machine:
                    '-qmp', f'tcp:127.0.0.1:{qmp_port},server=on,wait=off',
                    '-qtest', f'tcp:127.0.0.1:{test_port},server=on,wait=off',
                    '-qtest-log', str(self.folder / 'qtest.log')]
+        if wire_port is not None:
+            nic = command.index('-nic')
+            command[nic:nic + 2] = ['-nic', f'socket,model=esp32c3-wifi,listen=127.0.0.1:{wire_port}']
         if trace:
             command += ['-trace', 'enable=esp32c3_wifi_packet_stage',
                         '-trace', 'enable=esp32c3_wifi_rx_state']

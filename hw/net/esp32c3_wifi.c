@@ -205,17 +205,17 @@ void Esp32_sendFrame(Esp32C3WifiState *s, mac80211_frame *frame, int length,
     }
 
     if (s->c2_layout && s->softap_client_ssid &&
-        s->mode == Esp32_Mode_SoftAP &&
+        s->softap.ssid[0] &&
         frame->frame_control.type == IEEE80211_TYPE_MGT &&
         (frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_BEACON ||
          frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_PROBE_RESP) &&
-        memcmp(frame->bssid_address, s->softap_macaddr, 6)) {
+        memcmp(frame->bssid_address, s->softap.softap_macaddr, 6)) {
         /* External scan results belong to the unassociated STA interface,
          * never to the guest AP's peer table. SDK initialization order may
          * place STA in either hardware MAC slot. Its BSSID filter is wildcard
          * during scan; the old exact-MAC model discarded every result. */
         bool station_first = memcmp((uint8_t *)s->regs + 0x30,
-                                    s->softap_macaddr, 6) != 0;
+                                    s->softap.softap_macaddr, 6) != 0;
         metadata.damatch0 = metadata.bssidmatch0 = station_first;
         metadata.damatch1 = metadata.bssidmatch1 = !station_first;
     }

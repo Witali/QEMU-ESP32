@@ -64,6 +64,18 @@ typedef struct Esp32C3WifiDmaDesc {
     uint32_t next;
 } QEMU_PACKED Esp32C3WifiDmaDesc;
 
+/* Per-interface peer state. APSTA shares radio/DMA, never association or MACs. */
+typedef struct Esp32C3WifiInterface {
+    uint32_t ap_state;
+    uint8_t ipaddr[4];
+    uint8_t macaddr[6];
+    uint8_t ap_macaddr[6];
+    uint8_t associated_ap_macaddr[6];
+    uint8_t softap_macaddr[6];
+    uint8_t mode;
+    char ssid[33];
+} Esp32C3WifiInterface;
+
 struct Esp32C3WifiState {
     SysBusDevice parent_obj;
 
@@ -97,7 +109,9 @@ struct Esp32C3WifiState {
     NICState *nic;
     Esp32C3RadioState *radio;
 
-    uint32_t ap_state;
+    Esp32C3WifiInterface station;
+    Esp32C3WifiInterface softap;
+    Esp32C3WifiInterface *wlan;
     int inject_queue_size;
     struct mac80211_frame *inject_queue;
     bool inject_timer_running;
@@ -122,13 +136,6 @@ struct Esp32C3WifiState {
     bool link_down;
     bool station_ap_online;
 
-    uint8_t ipaddr[4];
-    uint8_t macaddr[6];
-    uint8_t ap_ipaddr[4];
-    uint8_t ap_macaddr[6];
-    uint8_t associated_ap_macaddr[6];
-    uint8_t softap_macaddr[6];
-    uint8_t mode;
     uint8_t channel;
 };
 

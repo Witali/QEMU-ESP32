@@ -30,7 +30,7 @@ size_t esp32c2_clock_prepare_dhcp(Esp32C3WifiState *s, const uint8_t *data,
 {
     size_t ihl, total, udp_size, pos, end;
     const uint8_t *ip, *udp;
-    if (!s->clock_services || s->mode != Esp32_Mode_Station || size < 282 ||
+    if (!s->clock_services || s->wlan->mode != Esp32_Mode_Station || size < 282 ||
         lduw_be_p(data + 12) != 0x0800) return 0;
     ip = data + 14;
     ihl = (ip[0] & 15) * 4;
@@ -78,7 +78,7 @@ bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size
 
     /* Do not impersonate a client of a guest AP: its real DHCP/ARP stack owns
      * that subnet. Station service addresses follow the configured SLIRP LAN. */
-    if (!s->clock_services || s->mode != Esp32_Mode_Station) return false;
+    if (!s->clock_services || s->wlan->mode != Esp32_Mode_Station) return false;
 
     if (size >= 42 && lduw_be_p(data + 12) == 0x0806 &&
         lduw_be_p(data + 14) == 1 && lduw_be_p(data + 16) == 0x0800 &&

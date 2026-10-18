@@ -61,19 +61,19 @@ static void add_tag(mac80211_frame *frame, int tag, int len, unsigned char bytes
 
 void Esp32_WLAN_init_ap_frame(Esp32C3WifiState *s, mac80211_frame *frame) {
     frame->sequence_control.sequence_number = s->inject_sequence_number++;
-    if(s->mode == Esp32_Mode_Station){
-        if(s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED)
-            memcpy(frame->source_address, s->macaddr, 6);
+    if(s->wlan->mode == Esp32_Mode_Station){
+        if(s->wlan->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED)
+            memcpy(frame->source_address, s->wlan->macaddr, 6);
         else
-            memcpy(frame->source_address, s->ap_macaddr, 6);
-        memcpy(frame->bssid_address, s->ap_macaddr, 6);
+            memcpy(frame->source_address, s->wlan->ap_macaddr, 6);
+        memcpy(frame->bssid_address, s->wlan->ap_macaddr, 6);
     }
     else{
-        if(s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED)
-            memcpy(frame->source_address, s->ap_macaddr, 6);
+        if(s->wlan->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED)
+            memcpy(frame->source_address, s->wlan->ap_macaddr, 6);
         else
-            memcpy(frame->source_address, s->softap_macaddr, 6);
-        memcpy(frame->bssid_address, s->softap_macaddr, 6);
+            memcpy(frame->source_address, s->wlan->softap_macaddr, 6);
+        memcpy(frame->bssid_address, s->wlan->softap_macaddr, 6);
     }
 
 }
@@ -149,12 +149,12 @@ static mac80211_frame *Esp32_WLAN_create_dhcp_frame(Esp32C3WifiState *s, int cmd
         {.htype=1,.hlen=6,.xid=0x1d3d00,.chaddr={0,0,0,0,0,0},
         .magic_cookie=0x63538263}
     };
-    if (s->softap_client_ssid && s->mode == Esp32_Mode_SoftAP) {
+    if (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP) {
         /* The virtual client, rather than the guest AP, owns this DHCP request. */
         req.dhcp.opcode = 1;
-        memcpy(req.dhcp.chaddr, s->ap_macaddr, 6);
+        memcpy(req.dhcp.chaddr, s->wlan->ap_macaddr, 6);
     } else {
-        memcpy(req.dhcp.chaddr, s->macaddr, 6);
+        memcpy(req.dhcp.chaddr, s->wlan->macaddr, 6);
     }
     int len=sizeof(req)+cmd_size;
     req.ipheader.len_h=len>>8;
@@ -302,12 +302,12 @@ mac80211_frame *Esp32_WLAN_create_data_packet(Esp32C3WifiState *s, const uint8_t
     frame->frame_control.flags = 0x2; /* from station back to station via AP */
     frame->duration_id = 44;
     /* send message to wlan-device */
-    if(s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
-        memcpy(frame->destination_address, s->ap_macaddr, 6);
+    if(s->wlan->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
+        memcpy(frame->destination_address, s->wlan->ap_macaddr, 6);
         frame->frame_control.flags = 0x2;
     }
     else
-        memcpy(frame->destination_address, s->macaddr, 6);
+        memcpy(frame->destination_address, s->wlan->macaddr, 6);
     /* LLC */
     add_data(frame,6,(uint8_t[]){ 0xaa, 0xaa ,0x03 ,0 ,0 ,0});
     memcpy(frame->data_and_fcs+6, buf+12, size-12);

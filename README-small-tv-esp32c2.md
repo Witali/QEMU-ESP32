@@ -538,3 +538,37 @@ stalled guest time, counter wrap and an answer arriving after the deadline.
 The previous fixed-wait failure is preserved as a failed attempt; it is not
 relabeled as a successful firmware run. The canonical helper used by an active
 immutable firmware regression is updated only after that regression finishes.
+
+
+### Independent APSTA peers
+
+With `softap-client-ssid`, the STA peer and the virtual client of the guest's AP
+have independent association states, MACs, SSIDs and learned local IP addresses.
+They still share the physical radio, DMA descriptors, bandwidth and bounded
+queues. A guest beacon no longer changes STA state, and interleaved STA traffic
+no longer replaces the AP client's identity. Incoming Ethernet replies select the
+guest interface by destination MAC or target IPv4 address, including broadcast
+ARP. Turning `station-ap-online` off discards only the external link's queued
+traffic and delivers its deauthentication notice; AP client work is retained.
+The configured virtual client ignores other SSIDs and malformed SSID elements.
+
+The previous shared state could suppress AP client association if the external
+network returned during the factory firmware's APSTA startup. The factory starts
+its HTTP server on the actual AP client association event, so mode=2 or the setup
+screen alone did not establish HTTP readiness. Keep the early external-network
+restoration in the firmware regression; delaying restoration hides this defect.
+
+```powershell
+python tests/esp32_wifi_apsta_test.py `
+  --qemu bin/qemu-system-riscv32.exe --bios share/qemu `
+  --output .cache/apsta-report.json --temp-root .cache/apsta-tests
+```
+
+Five tests run on both C2 and C3 (ten subcases): both handshake orders with
+interleaved DNS, complete AP-client DHCP with incoming IP/broadcast ARP, queue
+isolation on external AP outage, and unselected/malformed beacons. The same test
+and harness hashes produce ten failures on the preceding executable and pass on
+the corrected model. QTest changes only disposable RAM/descriptors in its own
+CPU-free machine; real factory/native firmware checks use untouched guest code.
+Factory APSTA's GOT_IP handler does not change its application state byte to 2;
+that byte alone cannot prove the presence or absence of STA connectivity.

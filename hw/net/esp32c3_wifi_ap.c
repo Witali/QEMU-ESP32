@@ -35,6 +35,7 @@
 #include "qemu/timer.h"
 #include "esp32c3_wifi_trace.h"
 #include "esp32c3_wifi_link.h"
+#include "esp32c3_wifi_interface.h"
 
 #include "hw/irq.h"
 #include "hw/net/esp32c3_wifi.h"
@@ -76,6 +77,7 @@ typedef struct Esp32C3WifiEthernetPacket {
     struct Esp32C3WifiEthernetPacket *next;
     int64_t delivery_ns;
     size_t size;
+    bool softap_interface;
     uint8_t data[];
 } Esp32C3WifiEthernetPacket;
 
@@ -117,6 +119,7 @@ static void Esp32_WLAN_send_ethernet(Esp32C3WifiState *s,
     packet = g_malloc(sizeof(*packet) + size);
     packet->next = NULL;
     packet->size = size;
+    packet->softap_interface = s->wlan == &s->softap;
     memcpy(packet->data, data, size);
     packet->delivery_ns = esp32_wifi_delivery_time(
         s, size, &s->tx_serial_ready_ns);
@@ -132,70 +135,106 @@ static void Esp32_WLAN_send_ethernet(Esp32C3WifiState *s,
     s->ethernet_tx_queue_size++;
 }
 
+/* Discard the external link's queued traffic without disturbing AP clients. */
+static void discard_station_traffic(Esp32C3WifiState *s)
+{
+    struct mac80211_frame *frame = s->inject_queue, *previous = NULL;
+    Esp32C3WifiEthernetPacket **ethernet = &s->ethernet_tx_queue;
+
+    s->inject_queue_size = 0;
+    while (frame) {
+        struct mac80211_frame *next = frame->next_frame;
+        if (!frame->softap_interface) {
+            if (previous) {
+                previous->next_frame = next;
+            } else {
+                s->inject_queue = next;
+            }
+            free(frame);
+        } else {
+            s->inject_queue_size++;
+            previous = frame;
+        }
+        frame = next;
+    }
+    s->ethernet_tx_tail = NULL;
+    s->ethernet_tx_queue_size = 0;
+    while (*ethernet) {
+        Esp32C3WifiEthernetPacket *packet = *ethernet;
+        if (!packet->softap_interface) {
+            *ethernet = packet->next;
+            g_free(packet);
+        } else {
+            s->ethernet_tx_tail = packet;
+            s->ethernet_tx_queue_size++;
+            ethernet = &packet->next;
+        }
+    }
+    timer_del(s->inject_timer);
+    timer_del(s->ethernet_tx_timer);
+    s->inject_timer_running = s->inject_queue != NULL;
+    if (s->inject_queue) {
+        timer_mod(s->inject_timer, esp32_wifi_next_delivery(s,
+                  s->inject_queue->delivery_ns, s->inject_queue->frame_length));
+    }
+    if (s->ethernet_tx_queue) {
+        timer_mod(s->ethernet_tx_timer, esp32_wifi_next_delivery(s,
+                  s->ethernet_tx_queue->delivery_ns, s->ethernet_tx_queue->size));
+    }
+}
+
+/* Shut down the external AP only; the guest owns reconnect and DHCP policy. */
 void Esp32_WLAN_set_station_ap_online(Esp32C3WifiState *s, bool online)
 {
-    /* Shut down only the external AP. The guest handles deauthentication,
-     * its own reconnect policy and DHCP; no firmware state is injected. */
+    Esp32C3WifiInterface *previous = s->wlan;
+
     if (s->station_ap_online == online) {
         return;
     }
-    if (!online && s->nic && s->mode == Esp32_Mode_Station) {
-        struct mac80211_frame *frame;
-        Esp32C3WifiEthernetPacket *packet;
-
-        /* An AP shutdown discards queued data, then sends one leaving notice.
-         * Preserve the guest SoftAP path and the normal reset/configuration. */
-        while ((frame = s->inject_queue)) {
-            s->inject_queue = frame->next_frame;
-            free(frame);
-        }
-        while ((packet = s->ethernet_tx_queue)) {
-            s->ethernet_tx_queue = packet->next;
-            g_free(packet);
-        }
-        s->inject_queue_size = 0;
-        s->inject_timer_running = false;
-        s->ethernet_tx_tail = NULL;
-        s->ethernet_tx_queue_size = 0;
-        timer_del(s->inject_timer);
-        timer_del(s->ethernet_tx_timer);
-        if (s->ap_state == Esp32_WLAN__STATE_ASSOCIATED) {
-            frame = Esp32_WLAN_create_deauthentication();
-            memcpy(frame->destination_address, s->macaddr, 6);
-            memcpy(frame->source_address, s->associated_ap_macaddr, 6);
-            memcpy(frame->bssid_address, s->associated_ap_macaddr, 6);
+    s->wlan = &s->station;
+    if (!online && s->nic && s->wlan->mode == Esp32_Mode_Station) {
+        discard_station_traffic(s);
+        if (s->wlan->ap_state == Esp32_WLAN__STATE_ASSOCIATED) {
+            struct mac80211_frame *frame = Esp32_WLAN_create_deauthentication();
+            memcpy(frame->destination_address, s->wlan->macaddr, 6);
+            memcpy(frame->source_address, s->wlan->associated_ap_macaddr, 6);
+            memcpy(frame->bssid_address, s->wlan->associated_ap_macaddr, 6);
             frame->signal_strength = -25;
             frame->sequence_control.sequence_number = s->inject_sequence_number++;
             Esp32_WLAN_insert_frame(s, frame);
         }
-        s->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
+        s->wlan->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
     }
     s->station_ap_online = online;
+    s->wlan = previous;
 }
 
 static void Esp32_WLAN_beacon_timer(void *opaque)
 {
     struct mac80211_frame *frame;
     Esp32C3WifiState *s = (Esp32C3WifiState *)opaque;
+    Esp32C3WifiInterface *previous = s->wlan;
+    /* The external AP advertises independently of the guest's AP client. */
+    s->wlan = &s->station;
     // only send a beacon if we are an access point
-    if (ENABLE_BEACON && ((s->mode == Esp32_Mode_Station && s->station_ap_online) ||
-                          (s->mode == Esp32_Mode_SoftAP && s->softap_client_ssid))) {
-      if(s->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED ||
-         (s->softap_client_ssid && s->mode == Esp32_Mode_SoftAP)) {
+    if (ENABLE_BEACON && ((s->wlan->mode == Esp32_Mode_Station && s->station_ap_online) ||
+                          (s->wlan->mode == Esp32_Mode_SoftAP && s->softap_client_ssid))) {
+      if(s->wlan->ap_state!=Esp32_WLAN__STATE_STA_ASSOCIATED ||
+         (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP)) {
         for(int i=0;i<nb_aps;i++){
           int ap = (i + s->beacon_ap)%nb_aps;
           if (access_points[ap].channel==esp32c3_wifi_channel(s)) {
               access_point_info info = access_points[ap];
               if (ap == 0) info.ssid = s->station_ssid;
               frame = Esp32_WLAN_create_beacon_frame(&info);
-              if (s->mode == Esp32_Mode_SoftAP) {
+              if (s->wlan->mode == Esp32_Mode_SoftAP) {
                   /* A setup AP may scan other networks while its client stays
                    * associated. Advertise their own BSSID without changing it. */
                   memcpy(frame->source_address, access_points[ap].mac_address, 6);
                   memcpy(frame->bssid_address, access_points[ap].mac_address, 6);
                   frame->sequence_control.sequence_number = s->inject_sequence_number++;
               } else {
-                  memcpy(s->ap_macaddr,access_points[ap].mac_address,6);
+                  memcpy(s->wlan->ap_macaddr,access_points[ap].mac_address,6);
                   Esp32_WLAN_init_ap_frame(s, frame);
               }
               Esp32_WLAN_insert_frame(s, frame);
@@ -205,6 +244,7 @@ static void Esp32_WLAN_beacon_timer(void *opaque)
         s->beacon_ap=(s->beacon_ap+1)%nb_aps;
       }
     }
+    s->wlan = previous;
     timer_mod(s->beacon_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + BEACON_TIME);
 }
 
@@ -240,7 +280,10 @@ static void Esp32_WLAN_inject_timer(void *opaque)
         // remove from queue
         s->inject_queue_size--;
         s->inject_queue = frame->next_frame;
+        Esp32C3WifiInterface *previous = s->wlan;
+        s->wlan = frame->softap_interface ? &s->softap : &s->station;
         Esp32_sendFrame(s, (void *)frame, frame->frame_length,frame->signal_strength);
+        s->wlan = previous;
         free(frame);
     }
     if (s->inject_queue_size > 0) {
@@ -441,6 +484,7 @@ void Esp32_WLAN_insert_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
 {
     struct mac80211_frame *i_frame;
 
+    frame->softap_interface = s->wlan == &s->softap;
     insertCRC(frame);
     if (esp32_wifi_packet_lost(s) ||
         s->inject_queue_size >= s->queue_limit) {
@@ -452,7 +496,7 @@ void Esp32_WLAN_insert_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
         s, frame->frame_length, &s->rx_serial_ready_ns);
     if(DEBUG) {
         ANSI_FG_HCOLOR(GREEN);
-        printf("---------------\n>IN Send Frame type:%d subtype:%d channel:%d ap_state:%d  time:%ld \n",frame->frame_control.type,frame->frame_control.sub_type,esp32c3_wifi_channel(s),s->ap_state,(unsigned long) qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+        printf("---------------\n>IN Send Frame type:%d subtype:%d channel:%d ap_state:%d  time:%ld \n",frame->frame_control.type,frame->frame_control.sub_type,esp32c3_wifi_channel(s),s->wlan->ap_state,(unsigned long) qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
         ANSI_DEFAULT();
     }
     infoprint(frame);
@@ -483,7 +527,7 @@ static _Bool Esp32_WLAN_can_receive(NetClientState *ncs)
 {
     Esp32C3WifiState *s = qemu_get_nic_opaque(ncs);
     /*
-    if (s->ap_state != Esp32_WLAN__STATE_ASSOCIATED  && s->ap_state != Esp32_WLAN__STATE_STA_ASSOCIATED) {
+    if (s->wlan->ap_state != Esp32_WLAN__STATE_ASSOCIATED  && s->wlan->ap_state != Esp32_WLAN__STATE_STA_ASSOCIATED) {
         // we are currently not connected
         // to the access point
         return 0;
@@ -512,7 +556,11 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
     if (!s) {
         return -1;
     }
-    if (!s->station_ap_online && s->mode == Esp32_Mode_Station) {
+    if (size < 14) {
+        return size;
+    }
+    esp32_wifi_select_ethernet_interface(s, buf, size);
+    if (!s->station_ap_online && s->wlan->mode == Esp32_Mode_Station) {
         return size;
     }
     /*
@@ -529,24 +577,24 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
     }
     frame = Esp32_WLAN_create_data_packet(s, buf, size);
     if (frame) {
-        if(s->mode == Esp32_Mode_Station){
-             memcpy(s->ap_macaddr,s->associated_ap_macaddr,6);
+        if(s->wlan->mode == Esp32_Mode_Station){
+             memcpy(s->wlan->ap_macaddr,s->wlan->associated_ap_macaddr,6);
 
-            if(s->ap_state==Esp32_WLAN__STATE_STA_ASSOCIATED) {
+            if(s->wlan->ap_state==Esp32_WLAN__STATE_STA_ASSOCIATED) {
                 frame->frame_control.flags=1;
                 // if it's an arp request put the correct reply mac address in the packet
                 if( frame->data_and_fcs[6]==8 && frame->data_and_fcs[7]==6) {
-                    memcpy(frame->data_and_fcs+16,s->macaddr,6);
+                    memcpy(frame->data_and_fcs+16,s->wlan->macaddr,6);
                 }
             }
         }
         else{
-            memcpy(frame->destination_address, s->softap_macaddr,6);
-            if(s->ap_state==Esp32_WLAN__STATE_STA_ASSOCIATED) {
+            memcpy(frame->destination_address, s->wlan->softap_macaddr,6);
+            if(s->wlan->ap_state==Esp32_WLAN__STATE_STA_ASSOCIATED) {
                 frame->frame_control.flags=1;
                 // if it's an arp request put the correct reply mac address in the packet
                 if( frame->data_and_fcs[6]==8 && frame->data_and_fcs[7]==6) {
-                    memcpy(frame->data_and_fcs+16,s->ap_macaddr,6);
+                    memcpy(frame->data_and_fcs+16,s->wlan->ap_macaddr,6);
                 }
             }
         }
@@ -561,9 +609,9 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
           //discard packages from others channels
           if((buf[12] & 0x0F) != esp32c3_wifi_channel(s)) return -1;
           //discard packages originated from the same mac address
-          if(!memcmp(&buf[6],s->macaddr,6)) return -1;
+          if(!memcmp(&buf[6],s->wlan->macaddr,6)) return -1;
           //check destination
-          if((memcmp(&buf[0],BROADCAST,6))&&(memcmp(&buf[0],s->macaddr,6))) return -1;
+          if((memcmp(&buf[0],BROADCAST,6))&&(memcmp(&buf[0],s->wlan->macaddr,6))) return -1;
 
           //action frame
           Esp32_WLAN_init_ap_frame(s, frame);
@@ -585,7 +633,7 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
           //Send Ack
           reply = Esp32_WLAN_create_ack();
           memcpy(reply->destination_address, &buf[6], 6);
-          memcpy(reply->source_address, s->macaddr, 6);
+          memcpy(reply->source_address, s->wlan->macaddr, 6);
           memset(reply->bssid_address, 0xff, 6);
           reply->duration_id=0;
 
@@ -627,9 +675,9 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
           //discard packages from others channels
           if((buf[12] & 0x0F) != esp32c3_wifi_channel(s)) return -1;
           //discard packages originated from the same mac address
-          if(!memcmp(&buf[6],s->macaddr,6)) return -1;
+          if(!memcmp(&buf[6],s->wlan->macaddr,6)) return -1;
           //check destination
-          if(memcmp(&buf[0],s->macaddr,6)) return -1;
+          if(memcmp(&buf[0],s->wlan->macaddr,6)) return -1;
 
           esp32c3_wifi_set_packet_status(s, ESP32C3_RADIO_PHYA_ACK);
           timer_mod_anticipate(s->wait_ack_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
@@ -687,10 +735,8 @@ void Esp32_WLAN_reset_ap(Esp32C3WifiState *s) {
         timer_del(s->ethernet_tx_timer);
     }
     s->channel = 0;
-    s->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
-    s->beacon_ap=0;
-    s->mode = Esp32_Mode_Station;
-    memcpy(s->ap_macaddr,(uint8_t[]){0x10,0x13,0x46,0xbf,0x31,0x50},sizeof(s->ap_macaddr));
+    esp32_wifi_reset_interfaces(s);
+    s->beacon_ap = 0;
 
     s->inject_timer_running = 0;
     s->inject_sequence_number = 0;
@@ -721,7 +767,7 @@ void Esp32_WLAN_setup_ap(DeviceState *dev,Esp32C3WifiState *s) {
                                         Esp32_WLAN_ethernet_tx_timer, s);
 
     s->nic = qemu_new_nic(&net_info, &s->conf, object_get_typename(OBJECT(s)), dev->id, &dev->mem_reentrancy_guard, s);
-    qemu_format_nic_info_str(qemu_get_queue(s->nic), s->macaddr);
+    qemu_format_nic_info_str(qemu_get_queue(s->nic), s->wlan->macaddr);
 }
 
 static void send_single_frame(Esp32C3WifiState *s, struct mac80211_frame *frame, struct mac80211_frame *reply) {
@@ -730,11 +776,11 @@ static void send_single_frame(Esp32C3WifiState *s, struct mac80211_frame *frame,
 
     if(frame) {
         memcpy(reply->destination_address, frame->source_address, 6);
-        if(s->mode == Esp32_Mode_Station){
-           memcpy(reply->source_address, s->macaddr, 6);
+        if(s->wlan->mode == Esp32_Mode_Station){
+           memcpy(reply->source_address, s->wlan->macaddr, 6);
         }
         else{
-           memcpy(reply->source_address, s->ap_macaddr, 6);
+           memcpy(reply->source_address, s->wlan->ap_macaddr, 6);
         }
         memcpy(reply->bssid_address, frame->source_address, 6);
     }
@@ -742,11 +788,14 @@ static void send_single_frame(Esp32C3WifiState *s, struct mac80211_frame *frame,
     Esp32_WLAN_insert_frame(s, reply);
 }
 
-void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
+static void handle_interface_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
 {
     struct mac80211_frame *reply = NULL;
-    static access_point_info dummy_ap={0};
-    static char ssid[64];
+    char *ssid = s->wlan->ssid;
+    access_point_info dummy_ap = {
+        .ssid = ssid, .channel = esp32c3_wifi_channel(s), .sigstrength = -23,
+    };
+    memcpy(dummy_ap.mac_address, s->wlan->ap_macaddr, 6);
     access_point_info station_ap = access_points[0];
     station_ap.ssid = s->station_ssid;
     char requested_ssid[33] = { 0 };
@@ -758,7 +807,7 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
         if((ENABLE_BEACON)||!((frame->frame_control.type == IEEE80211_TYPE_MGT)&&(frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_BEACON))){
             ANSI_FG_HCOLOR(RED);
             printf("-------------------------\n<OUT Handle Frame type:%d subtype:%d channel:%d ap_state:%d time:%ld \n",frame->frame_control.type,
-                         frame->frame_control.sub_type,esp32c3_wifi_channel(s),s->ap_state,(unsigned long)  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+                         frame->frame_control.sub_type,esp32c3_wifi_channel(s),s->wlan->ap_state,(unsigned long)  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
             ANSI_DEFAULT();
         }
     }
@@ -767,11 +816,11 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
     }
     access_point_info *ap_info=0;
 
-    if (memcmp(frame->source_address, BROADCAST, sizeof(s->macaddr))) {
-        memcpy(s->macaddr, frame->source_address, sizeof(s->macaddr));
+    if (memcmp(frame->source_address, BROADCAST, sizeof(s->wlan->macaddr))) {
+        memcpy(s->wlan->macaddr, frame->source_address, sizeof(s->wlan->macaddr));
     }
 
-    if (!s->station_ap_online && s->mode == Esp32_Mode_Station &&
+    if (!s->station_ap_online && s->wlan->mode == Esp32_Mode_Station &&
         !(frame->frame_control.type == IEEE80211_TYPE_MGT &&
           frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_BEACON)) {
         /* The guest may still start its own AP after failed station retries. */
@@ -780,7 +829,7 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
         return;
     }
 
-    if(s->mode == Esp32_Mode_Station){
+    if(s->wlan->mode == Esp32_Mode_Station){
         station_ap.channel = esp32c3_wifi_channel(s);
         if (frame->frame_control.type == IEEE80211_TYPE_MGT &&
             frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ &&
@@ -798,7 +847,7 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
     /* Active scan on the guest's STA interface may run while its AP client
      * remains associated. Answer as each external AP, without replacing the
      * setup client's MAC/state or waiting for a 500-ms beacon interval. */
-    if (s->softap_client_ssid && s->mode == Esp32_Mode_SoftAP &&
+    if (s->softap_client_ssid && s->softap.ssid[0] &&
         frame->frame_control.type == IEEE80211_TYPE_MGT &&
         frame->frame_control.sub_type == IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ) {
         for (int i = 0; i < nb_aps; ++i) {
@@ -821,8 +870,8 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
     if(frame->frame_control.type == IEEE80211_TYPE_MGT) {
         switch(frame->frame_control.sub_type) {
             case IEEE80211_TYPE_MGT_SUBTYPE_BEACON:
-                if(s->ap_state==Esp32_WLAN__STATE_NOT_AUTHENTICATED || s->ap_state==Esp32_WLAN__STATE_AUTHENTICATED) {
-                    strncpy(ssid,(char *)frame->data_and_fcs+14,frame->data_and_fcs[13]);
+                if(s->wlan->ap_state==Esp32_WLAN__STATE_NOT_AUTHENTICATED || s->wlan->ap_state==Esp32_WLAN__STATE_AUTHENTICATED) {
+                    if (!esp32_wifi_read_ssid(frame, ssid, 33)) break;
                     if(DEBUG) printf("beacon from %s\n",ssid);
                     dummy_ap.ssid=ssid;
                     dummy_ap.channel = esp32c3_wifi_channel(s);
@@ -832,13 +881,13 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                      * and association arrives from a different (often zero) MAC. */
                     if (s->softap_client_ssid &&
                         !strcmp(ssid, s->softap_client_ssid)) {
-                        memcpy(s->ap_macaddr, (uint8_t[]){0x52,0x54,0,0x43,0,2}, 6);
+                        memcpy(s->wlan->ap_macaddr, (uint8_t[]){0x52,0x54,0,0x43,0,2}, 6);
                         ap_info = NULL;
                     }
-                    memcpy(dummy_ap.mac_address,s->ap_macaddr,6) ;
-                    memcpy(s->softap_macaddr,frame->bssid_address,6);
-                    s->mode = Esp32_Mode_SoftAP;
-                    s->ap_state=Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED;
+                    memcpy(dummy_ap.mac_address,s->wlan->ap_macaddr,6) ;
+                    memcpy(s->wlan->softap_macaddr,frame->bssid_address,6);
+                    s->wlan->mode = Esp32_Mode_SoftAP;
+                    s->wlan->ap_state=Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED;
                     send_single_frame(s,frame,Esp32_WLAN_create_probe_request(&dummy_ap));
                 }
                 break;
@@ -858,7 +907,7 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                 ethernet_frame[13] = ((IEEE80211_TYPE_MGT << 4)|IEEE80211_TYPE_MGT_SUBTYPE_ACTION);
 
                 memcpy(&ethernet_frame[0], frame->destination_address, 6);
-                memcpy(&ethernet_frame[6], s->macaddr, 6);
+                memcpy(&ethernet_frame[6], s->wlan->macaddr, 6);
 
                 if (frame->frame_length < IEEE80211_HEADER_SIZE + 8 + 4) {
                 Esp32_WLAN_frame_delivered(s);
@@ -888,10 +937,10 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_PROBE_RESP:
                 ap_info=&dummy_ap;
-                strncpy(ssid,(char *)frame->data_and_fcs+14,frame->data_and_fcs[13]);
+                if (!esp32_wifi_read_ssid(frame, ssid, 33)) break;
                 if(DEBUG) printf("probe resp from %s\n",ssid);
                 dummy_ap.ssid=ssid;
-                s->ap_state=Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED;
+                s->wlan->ap_state=Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED;
                 send_single_frame(s,frame,Esp32_WLAN_create_deauthentication());
                 send_single_frame(s,frame,Esp32_WLAN_create_authentication_request());
                 break;
@@ -902,20 +951,20 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                 memcpy(frame1->source_address,frame->destination_address,6);
                 memcpy(frame1->destination_address,frame->source_address,6);
                 send_single_frame(s,0,frame1);
-                s->ap_state=Esp32_WLAN__STATE_STA_DHCP;
+                s->wlan->ap_state=Esp32_WLAN__STATE_STA_DHCP;
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_DISASSOCIATION:
                 DEBUG_PRINT_AP(("Received disassociation!\n"));
                 send_single_frame(s,frame,Esp32_WLAN_create_disassociation());
-                if (s->ap_state == Esp32_WLAN__STATE_ASSOCIATED || s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
-                    s->ap_state = Esp32_WLAN__STATE_AUTHENTICATED;
+                if (s->wlan->ap_state == Esp32_WLAN__STATE_ASSOCIATED || s->wlan->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
+                    s->wlan->ap_state = Esp32_WLAN__STATE_AUTHENTICATED;
                 }
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_DEAUTHENTICATION:
                 DEBUG_PRINT_AP(("Received deauthentication!\n"));
                 //reply = Esp32_WLAN_create_authentication_response(ap_info);
-                if (s->ap_state == Esp32_WLAN__STATE_AUTHENTICATED) {
-                    s->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
+                if (s->wlan->ap_state == Esp32_WLAN__STATE_AUTHENTICATED) {
+                    s->wlan->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
                 }
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_AUTHENTICATION:
@@ -926,7 +975,7 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                 break;
         }
         if(ap_info) {
-            memcpy(s->ap_macaddr,ap_info->mac_address,6);
+            memcpy(s->wlan->ap_macaddr,ap_info->mac_address,6);
             switch(frame->frame_control.sub_type) {
                 case IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ:
                     DEBUG_PRINT_AP(("Received probe request!\n"));
@@ -936,17 +985,17 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
                     DEBUG_PRINT_AP(("Received authentication req!\n"));
                     if(frame->data_and_fcs[2]==1) { // request
                         reply = Esp32_WLAN_create_authentication_response(ap_info);
-                        if (s->ap_state == Esp32_WLAN__STATE_NOT_AUTHENTICATED) {
-                            s->ap_state = Esp32_WLAN__STATE_AUTHENTICATED;
+                        if (s->wlan->ap_state == Esp32_WLAN__STATE_NOT_AUTHENTICATED) {
+                            s->wlan->ap_state = Esp32_WLAN__STATE_AUTHENTICATED;
                         }
                     }
                 break;
                 case IEEE80211_TYPE_MGT_SUBTYPE_ASSOCIATION_REQ:
                     DEBUG_PRINT_AP(("Received association request!\n"));
                     reply = Esp32_WLAN_create_association_response(ap_info);
-                    if (s->ap_state == Esp32_WLAN__STATE_AUTHENTICATED) {
-                        s->ap_state = Esp32_WLAN__STATE_ASSOCIATED;
-                        memcpy(s->associated_ap_macaddr,s->ap_macaddr,6);
+                    if (s->wlan->ap_state == Esp32_WLAN__STATE_AUTHENTICATED) {
+                        s->wlan->ap_state = Esp32_WLAN__STATE_ASSOCIATED;
+                        memcpy(s->wlan->associated_ap_macaddr,s->wlan->ap_macaddr,6);
                     }
                     break;
             }
@@ -960,22 +1009,22 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
     }
     if ((frame->frame_control.type == IEEE80211_TYPE_DATA) &&
         (frame->frame_control.sub_type == IEEE80211_TYPE_DATA_SUBTYPE_DATA)) {
-        if(s->ap_state == Esp32_WLAN__STATE_STA_DHCP) {
+        if(s->wlan->ap_state == Esp32_WLAN__STATE_STA_DHCP) {
             dhcp_request_t *req=(dhcp_request_t *)&frame->data_and_fcs[8];
             // check for a dhcp offer
             if(req->dhcp.bp_options[0]==0x35 && req->dhcp.bp_options[2]==0x2) {
                 mac80211_frame *frame1=Esp32_WLAN_create_dhcp_request(s,req->dhcp.yiaddr);
                 memcpy(frame1->bssid_address,BROADCAST,6);
-                memcpy(frame1->source_address,s->ap_macaddr,6);
+                memcpy(frame1->source_address,s->wlan->ap_macaddr,6);
                 memcpy(frame1->destination_address,frame->source_address,6);
                 send_single_frame(s,0,frame1);
-                //memcpy(s->ap_macaddr,(uint8_t[]){0x10,0x01,0x00,0xc4,0x0a,0x25},sizeof(s->ap_macaddr));
-                //memcpy(s->associated_ap_macaddr,s->ap_macaddr,sizeof(s->ap_macaddr));
-                memcpy(s->associated_ap_macaddr,s->macaddr,sizeof(s->macaddr));
-                s->ap_state=Esp32_WLAN__STATE_STA_ASSOCIATED;
+                //memcpy(s->wlan->ap_macaddr,(uint8_t[]){0x10,0x01,0x00,0xc4,0x0a,0x25},sizeof(s->wlan->ap_macaddr));
+                //memcpy(s->wlan->associated_ap_macaddr,s->wlan->ap_macaddr,sizeof(s->wlan->ap_macaddr));
+                memcpy(s->wlan->associated_ap_macaddr,s->wlan->macaddr,sizeof(s->wlan->macaddr));
+                s->wlan->ap_state=Esp32_WLAN__STATE_STA_ASSOCIATED;
                 if(DEBUG) printf("Dhcp received addr %d.%d.%d.%d\n",req->dhcp.yiaddr[0],req->dhcp.yiaddr[1],req->dhcp.yiaddr[2],req->dhcp.yiaddr[3]);
             }
-        } else if (s->ap_state == Esp32_WLAN__STATE_ASSOCIATED || s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
+        } else if (s->wlan->ap_state == Esp32_WLAN__STATE_ASSOCIATED || s->wlan->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
             /*
             * The access point uses the 802.11 frame
             * and sends a 802.3 frame into the network...
@@ -991,10 +1040,10 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
 
             // the new originator of the packet is
             // the access point
-            if(s->ap_state == Esp32_WLAN__STATE_ASSOCIATED)
-                memcpy(&ethernet_frame[6], s->ap_macaddr, 6);
+            if(s->wlan->ap_state == Esp32_WLAN__STATE_ASSOCIATED)
+                memcpy(&ethernet_frame[6], s->wlan->ap_macaddr, 6);
             else
-                memcpy(&ethernet_frame[6], s->macaddr, 6);
+                memcpy(&ethernet_frame[6], s->wlan->macaddr, 6);
 
             if (ethernet_frame[12] == 0x08 && ethernet_frame[13] == 0x06) {
                 // for arp request, we use a broadcast
@@ -1028,4 +1077,17 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
         }
     }
     Esp32_WLAN_frame_delivered(s);
+}
+
+/* Select the actual transmitting guest interface before changing peer state. */
+void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
+{
+    if (!esp32_wifi_select_guest_interface(s, frame)) {
+        /* An opt-in virtual client ignores other SSIDs and malformed beacons. */
+        esp32c3_wifi_set_packet_status(s, ESP32C3_RADIO_PHYA_ACK);
+        Esp32_WLAN_frame_delivered(s);
+        return;
+    }
+    esp32_wifi_learn_guest_ip(s, frame);
+    handle_interface_frame(s, frame);
 }
