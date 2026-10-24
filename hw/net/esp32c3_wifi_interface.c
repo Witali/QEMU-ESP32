@@ -6,15 +6,49 @@
 #include "esp32c3_wifi_interface.h"
 #include "hw/net/esp32c3_wifi_80211.h"
 
-/* Clear both interfaces on hardware reset, independently of external AP power. */
+/* Resolve a bounded virtual-client slot without changing the active radio peer. */
+Esp32C3WifiInterface *esp32_wifi_softap_client(Esp32C3WifiState *s, unsigned index)
+{
+    assert(index < ESP32_WIFI_SOFTAP_CLIENTS);
+    return index ? &s->softap_extra[index - 1] : &s->softap;
+}
+
+/* Queue identities retain the exact peer through later APSTA transmissions. */
+uint8_t esp32_wifi_interface_id(Esp32C3WifiState *s, Esp32C3WifiInterface *interface)
+{
+    if (interface == &s->station) return 0;
+    for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
+        if (interface == esp32_wifi_softap_client(s, i)) return i + 1;
+    }
+    g_assert_not_reached();
+}
+
+/* Restore the queued peer, never whichever interface happened to transmit last. */
+Esp32C3WifiInterface *esp32_wifi_interface_by_id(Esp32C3WifiState *s, uint8_t id)
+{
+    return id ? esp32_wifi_softap_client(s, id - 1) : &s->station;
+}
+
+/* Only opt-in virtual AP clients obey the external presence control. */
+bool esp32_wifi_client_online(Esp32C3WifiState *s, Esp32C3WifiInterface *interface)
+{
+    if (!s->softap_client_ssid || interface == &s->station) return true;
+    return (s->softap_client_mask & (1u << (esp32_wifi_interface_id(s, interface) - 1))) != 0;
+}
+
+/* Clear associations on hardware reset; external client presence survives it. */
 void esp32_wifi_reset_interfaces(Esp32C3WifiState *s)
 {
     memset(&s->station, 0, sizeof(s->station));
-    memset(&s->softap, 0, sizeof(s->softap));
     s->station.mode = Esp32_Mode_Station;
-    s->softap.mode = Esp32_Mode_SoftAP;
     memcpy(s->station.ap_macaddr, (uint8_t[]){0x10, 0x13, 0x46, 0xbf, 0x31, 0x50}, 6);
-    memcpy(s->softap.ap_macaddr, (uint8_t[]){0x52, 0x54, 0, 0x43, 0, 2}, 6);
+    for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
+        Esp32C3WifiInterface *peer = esp32_wifi_softap_client(s, i);
+        memset(peer, 0, sizeof(*peer));
+        peer->mode = Esp32_Mode_SoftAP;
+        memcpy(peer->ap_macaddr, (uint8_t[]){0x52, 0x54, 0, 0x43, 0, 2}, 6);
+        peer->ap_macaddr[5] += i;
+    }
     s->wlan = &s->station;
 }
 
@@ -60,7 +94,28 @@ bool esp32_wifi_select_guest_interface(Esp32C3WifiState *s, const struct mac8021
         }
     }
     s->wlan = softap ? &s->softap : &s->station;
-    return true;
+    if (softap) {
+        const uint8_t *client = frame->destination_address;
+        /* Broadcast DHCP replies identify their client in BOOTP chaddr. */
+        if (frame->frame_control.type == IEEE80211_TYPE_DATA &&
+            frame->frame_length >= IEEE80211_HEADER_SIZE + 8 + sizeof(dhcp_request_t) + 4) {
+            const dhcp_request_t *reply = (const void *)(frame->data_and_fcs + 8);
+            if (lduw_be_p(frame->data_and_fcs + 6) == 0x0800 &&
+                reply->ipheader.protocol == 17 && reply->dhcp.opcode == 2 &&
+                reply->udpheader.src_port_h == 0 && reply->udpheader.src_port_l == 67 &&
+                reply->udpheader.dest_port_h == 0 && reply->udpheader.dest_port_l == 68) {
+                client = reply->dhcp.chaddr;
+            }
+        }
+        for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
+            Esp32C3WifiInterface *peer = esp32_wifi_softap_client(s, i);
+            if (!memcmp(client, peer->ap_macaddr, 6)) {
+                s->wlan = peer;
+                break;
+            }
+        }
+    }
+    return esp32_wifi_client_online(s, s->wlan);
 }
 
 /* Learn an interface's source IPv4 address from its actual data/ARP packets. */

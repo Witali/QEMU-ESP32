@@ -23,6 +23,7 @@
 #include "qapi/visitor.h"
 #include "trace.h"
 #include "esp32c3_wifi_trace.h"
+#include "esp32c3_wifi_interface.h"
 
 /* C2 ROM uses RX 0x64/0x68 and TX PLCP0 0xce8; C3 uses 0x84/0x88
  * and 0xd08. Keep the shared 802.11 and DMA implementation. */
@@ -501,6 +502,42 @@ static char *wifi_get_ntp_reply(Object *obj, Error **errp)
                            s->ntp_reply_virtual_us);
 }
 
+/* Report model peer state only on explicit QMP inspection, without live logs. */
+static char *wifi_get_softap_clients(Object *obj, Error **errp)
+{
+    Esp32C3WifiState *s = ESP32C3_WIFI(obj);
+    GString *json = g_string_new("[");
+    for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
+        Esp32C3WifiInterface *peer = esp32_wifi_softap_client(s, i);
+        g_string_append_printf(json, "%s{\"index\":%u,\"online\":%s,\"model_state\":%u,"
+            "\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"offered_ipv4\":\"%u.%u.%u.%u\"}",
+            i ? "," : "", i, s->softap_client_mask & (1u << i) ? "true" : "false", peer->ap_state,
+            peer->ap_macaddr[0], peer->ap_macaddr[1], peer->ap_macaddr[2],
+            peer->ap_macaddr[3], peer->ap_macaddr[4], peer->ap_macaddr[5],
+            peer->offered_ipaddr[0], peer->offered_ipaddr[1], peer->offered_ipaddr[2], peer->offered_ipaddr[3]);
+    }
+    g_string_append_c(json, ']');
+    return g_string_free(json, false);
+}
+
+/* Observe the external clients independently of their current association. */
+static void wifi_get_softap_mask(Object *obj, Visitor *v, const char *name, void *opaque, Error **errp)
+{
+    visit_type_uint32(v, name, &ESP32C3_WIFI(obj)->softap_client_mask, errp);
+}
+
+/* Validate the entire mask before sending any leaving frame or editing queues. */
+static void wifi_set_softap_mask(Object *obj, Visitor *v, const char *name, void *opaque, Error **errp)
+{
+    uint32_t value;
+    if (!visit_type_uint32(v, name, &value, errp)) return;
+    if (value & ~((1u << ESP32_WIFI_SOFTAP_CLIENTS) - 1)) {
+        error_setg(errp, "softap-client-mask must contain only the three client bits");
+        return;
+    }
+    Esp32_WLAN_set_softap_clients(ESP32C3_WIFI(obj), value);
+}
+
 static bool wifi_get_debug_logging(Object *obj, Error **errp)
 {
     /* Expose build capability without enabling logging or changing the guest. */
@@ -519,6 +556,10 @@ static void esp32c3_wifi_init(Object *obj)
     object_property_add_str(obj, "last-ntp-reply", wifi_get_ntp_reply, NULL);
     s->ntp_unix_seconds = -1;
     s->station_ap_online = true;
+    s->softap_client_mask = 1;
+    object_property_add(obj, "softap-client-mask", "uint32", wifi_get_softap_mask,
+                        wifi_set_softap_mask, NULL, NULL);
+    object_property_add_str(obj, "softap-clients", wifi_get_softap_clients, NULL);
     s->station_ssid = g_strdup("QEMU");
     object_property_add(obj, "ntp-unix-seconds", "int", wifi_get_ntp_seconds,
                         wifi_set_ntp_seconds, NULL, NULL);

@@ -27,6 +27,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Esp32C3WifiState, ESP32C3_WIFI)
 
 #define ESP32C3_WIFI_MMIO_SIZE 0x2000
 #define ESP32C3_WIFI_TX_SLOT_COUNT 5
+#define ESP32_WIFI_SOFTAP_CLIENTS 3
 
 /* RX DMA and filter registers. */
 #define ESP32C3_WIFI_RX_CTRL          0x084
@@ -68,6 +69,7 @@ typedef struct Esp32C3WifiDmaDesc {
 typedef struct Esp32C3WifiInterface {
     uint32_t ap_state;
     uint8_t ipaddr[4];
+    uint8_t offered_ipaddr[4];
     uint8_t macaddr[6];
     uint8_t ap_macaddr[6];
     uint8_t associated_ap_macaddr[6];
@@ -111,6 +113,8 @@ struct Esp32C3WifiState {
 
     Esp32C3WifiInterface station;
     Esp32C3WifiInterface softap;
+    Esp32C3WifiInterface softap_extra[ESP32_WIFI_SOFTAP_CLIENTS - 1];
+    uint32_t softap_client_mask;
     Esp32C3WifiInterface *wlan;
     int inject_queue_size;
     struct mac80211_frame *inject_queue;
@@ -151,6 +155,7 @@ void Esp32_sendFrame(Esp32C3WifiState *s, struct mac80211_frame *frame,
 void Esp32_WLAN_frame_delivered(Esp32C3WifiState *s);
 void Esp32_WLAN_rx_ready(Esp32C3WifiState *s);
 void Esp32_WLAN_set_station_ap_online(Esp32C3WifiState *s, bool online);
+void Esp32_WLAN_set_softap_clients(Esp32C3WifiState *s, uint32_t mask);
 
 bool esp32c2_clock_service(Esp32C3WifiState *s, const uint8_t *data, size_t size);
 

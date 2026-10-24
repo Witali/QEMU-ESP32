@@ -177,6 +177,9 @@ mac80211_frame *Esp32_WLAN_create_dhcp_request(Esp32C3WifiState *s, uint8_t *ip)
         0x37, 0x04, 0x01, 0x03, 0x1c, 0x06,
         0xff, 0, 0
     };
+    if (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP) {
+        memcpy(dhcp_commands + 16, s->wlan->ap_macaddr, 6);
+    }
     return Esp32_WLAN_create_dhcp_frame(s, sizeof(dhcp_commands),dhcp_commands);
 }
 
@@ -189,6 +192,9 @@ mac80211_frame *Esp32_WLAN_create_dhcp_discover(Esp32C3WifiState *s) {
         0x37 ,0x04 ,0x01 ,0x03 ,0x1c ,0x06 ,
         0xff, 0,0
     };
+    if (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP) {
+        memcpy(dhcp_commands + 21, s->wlan->ap_macaddr, 6);
+    }
     return Esp32_WLAN_create_dhcp_frame(s,sizeof(dhcp_commands),dhcp_commands);
 }
 
