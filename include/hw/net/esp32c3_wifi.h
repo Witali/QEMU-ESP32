@@ -13,6 +13,7 @@
 #include "net/net.h"
 #include "qemu/timer.h"
 #include "hw/misc/esp32c3_radio.h"
+#include "hw/net/esp32c3_wifi_dhcp.h"
 
 struct mac80211_frame;
 struct Esp32C3WifiEthernetPacket;
@@ -70,6 +71,7 @@ typedef struct Esp32C3WifiInterface {
     uint32_t ap_state;
     uint8_t ipaddr[4];
     uint8_t offered_ipaddr[4];
+    Esp32WifiDhcpLease dhcp;
     uint8_t macaddr[6];
     uint8_t ap_macaddr[6];
     uint8_t associated_ap_macaddr[6];

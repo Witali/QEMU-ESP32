@@ -156,6 +156,8 @@ static mac80211_frame *Esp32_WLAN_create_dhcp_frame(Esp32C3WifiState *s, int cmd
     } else {
         memcpy(req.dhcp.chaddr, s->wlan->macaddr, 6);
     }
+    /* Wire order is independent of the host's integer representation. */
+    memcpy(&req.dhcp.xid, esp32_wifi_dhcp_xid, 4);
     int len=sizeof(req)+cmd_size;
     req.ipheader.len_h=len>>8;
     req.ipheader.len_l=len&0xff;
@@ -174,6 +176,9 @@ mac80211_frame *Esp32_WLAN_create_dhcp_request(Esp32C3WifiState *s, uint8_t *ip)
         0x39, 2 ,5 ,0xdc ,
         0x32, 4, ip[0],ip[1],ip[2],ip[3],
         0x3d, 0x07, 0x01, 0x3c, 0x61, 0x05, 0x0d, 0x99, 0x24,
+        /* SELECTING -> REQUESTING identifies the selected DHCP server. */
+        0x36, 4, s->wlan->dhcp.server[0], s->wlan->dhcp.server[1],
+        s->wlan->dhcp.server[2], s->wlan->dhcp.server[3],
         0x37, 0x04, 0x01, 0x03, 0x1c, 0x06,
         0xff, 0, 0
     };

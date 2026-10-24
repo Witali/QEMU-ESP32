@@ -1,0 +1,64 @@
+{
+  "default": {
+    "passed": true,
+    "checks": {
+      "running": true,
+      "console_has_content": true,
+      "display_dimensions": true,
+      "no_panic_or_watchdog": true,
+      "source_flash_unchanged": true,
+      "source_artifacts_unchanged": true
+    },
+    "hardware_profile": null,
+    "machine": "esp32c3",
+    "duration_seconds": 60,
+    "qemu_sha256": "128d0d75316eeb2a33e7c527ce3cb71cbf9158b9e3062fe1a23c7bcccbf610f5",
+    "firmware_sources": {
+      "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+    },
+    "pixel_sha256": "a5602b28bd3e100d5aa9a182c9ee95d812aeb0aaa8f1abb3201894f7d66da82f",
+    "nonzero_bytes": 47040,
+    "lcd_area_nonzero_bytes": 47040,
+    "cyd_boot_scope": null
+  },
+  "modular": {
+    "passed": true,
+    "checks": {
+      "running": true,
+      "console_has_content": true,
+      "display_dimensions": true,
+      "no_panic_or_watchdog": true,
+      "source_flash_unchanged": true,
+      "source_artifacts_unchanged": true
+    },
+    "hardware_profile": {
+      "schema": 1,
+      "name": "c3-oled",
+      "soc": "esp32c3",
+      "machine": "esp32c3,default-peripherals=off",
+      "arguments": [
+        "-device",
+        "{\"driver\":\"esp-i2c-module\",\"id\":\"oled\",\"bus\":\"/i2c0/i2c\",\"gpio\":\"/machine/gpio\",\"address\":60,\"model\":\"ssd1306\",\"scl\":6,\"sda\":5,\"properties\":\"{\\\"visible-width\\\":72,\\\"visible-height\\\":40,\\\"column-offset\\\":28,\\\"magnify\\\":4}\"}"
+      ],
+      "sd_images": [],
+      "profile": "C:\\Work\\QEMU-ESP32\\.worktree\\small-tv-ap-clients\\configs\\boards\\c3-oled.json",
+      "network": {
+        "station_ssid": "yoRadio-QEMU",
+        "urls": [],
+        "ntp_hosts": []
+      },
+      "network_arguments": [],
+      "service_urls": []
+    },
+    "machine": "esp32c3",
+    "duration_seconds": 60,
+    "qemu_sha256": "128d0d75316eeb2a33e7c527ce3cb71cbf9158b9e3062fe1a23c7bcccbf610f5",
+    "firmware_sources": {
+      "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+    },
+    "pixel_sha256": "c22807ce4f2ee151e100d4f59aec5c2e093c9d22920997a78a2dd1357db33bda",
+    "nonzero_bytes": 46608,
+    "lcd_area_nonzero_bytes": 46608,
+    "cyd_boot_scope": null
+  }
+}

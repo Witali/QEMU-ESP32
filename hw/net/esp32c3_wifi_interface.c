@@ -96,16 +96,13 @@ bool esp32_wifi_select_guest_interface(Esp32C3WifiState *s, const struct mac8021
     s->wlan = softap ? &s->softap : &s->station;
     if (softap) {
         const uint8_t *client = frame->destination_address;
-        /* Broadcast DHCP replies identify their client in BOOTP chaddr. */
+        /* Only a fully bounded DHCP reply may select a broadcast client. */
+        Esp32WifiDhcpReply reply;
         if (frame->frame_control.type == IEEE80211_TYPE_DATA &&
-            frame->frame_length >= IEEE80211_HEADER_SIZE + 8 + sizeof(dhcp_request_t) + 4) {
-            const dhcp_request_t *reply = (const void *)(frame->data_and_fcs + 8);
-            if (lduw_be_p(frame->data_and_fcs + 6) == 0x0800 &&
-                reply->ipheader.protocol == 17 && reply->dhcp.opcode == 2 &&
-                reply->udpheader.src_port_h == 0 && reply->udpheader.src_port_l == 67 &&
-                reply->udpheader.dest_port_h == 0 && reply->udpheader.dest_port_l == 68) {
-                client = reply->dhcp.chaddr;
-            }
+            frame->frame_length >= IEEE80211_HEADER_SIZE + 8 + 4 &&
+            esp32_wifi_dhcp_reply(frame->data_and_fcs,
+                frame->frame_length - IEEE80211_HEADER_SIZE - 4, &reply)) {
+            client = reply.mac;
         }
         for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
             Esp32C3WifiInterface *peer = esp32_wifi_softap_client(s, i);

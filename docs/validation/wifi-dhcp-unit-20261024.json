@@ -1,0 +1,1534 @@
+{
+  "passed": true,
+  "inputs_sha256": {
+    "C:\\Work\\QEMU-ESP32\\.worktree\\small-tv-ap-clients\\tools\\test_esp_wifi_dhcp.py": "8b2a7633bb98b7286dae1498269acd5c880367e98740c09c0546cc8feba36d0d",
+    "C:\\Work\\QEMU-ESP32\\.worktree\\small-tv-ap-clients\\hw\\net\\esp32c3_wifi_dhcp.c": "11fbdc9a453a3c2a08bad4e7623640247c1af4b0c81772ac24c75e27ea528cc1",
+    "C:\\Work\\QEMU-ESP32\\.worktree\\small-tv-ap-clients\\hw\\net\\esp32c3_wifi_dhcp.h": "8216fd4f255537d19304e7a500666332e11590f1f160f54e155a6246c041222b",
+    "C:\\Work\\HLV-codec\\local_tools\\msys2\\msys64\\mingw64\\bin\\gcc.exe": "d38d4dd6bea387499487881383e644ab7c193ac8f8364dc4252d6e6cc09700e2"
+  },
+  "command": [
+    "C:/Work/HLV-codec/local_tools/msys2/msys64/mingw64/bin/gcc.exe",
+    "-std=c11",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-O2",
+    "-shared",
+    "-g",
+    "-o",
+    "C:\\Work\\QEMU-ESP32\\.worktree\\small-tv-ap-clients\\build\\dhcp-protocol-v1\\protocol.dll",
+    "C:\\Work\\QEMU-ESP32\\.worktree\\small-tv-ap-clients\\hw\\net\\esp32c3_wifi_dhcp.c"
+  ],
+  "dll_sha256": "b5647b85cd41c2e4f8e15e5de4a7bc8d8363f70f0f9eafd0a91790e75e660526",
+  "cases": [
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 0,
+      "type": 2,
+      "packet_sha256": "2125f3763d6e86dd303ecfacc1b8a7fe2c7d5d55c3ca414f02c505483bc354a4"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 0,
+      "type": 5,
+      "packet_sha256": "256d1865754a856ae07dc753b64c3c15a7cd25fe6b76bca73b90b1de832904ca"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 0,
+      "type": 6,
+      "packet_sha256": "1996e8d79e513b39ade294ad16f659cb7e82d9704274a08e9c1cecfd3528463a"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 1,
+      "type": 2,
+      "packet_sha256": "3539e2244dd068b15992dd33790fa149e9055292540430485fa50554868c4782"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 1,
+      "type": 5,
+      "packet_sha256": "901fb98f98da3e7a023ecda7e40473f46d53fa9da5317e81932ad6a0fc370768"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 1,
+      "type": 6,
+      "packet_sha256": "fb15373bad3532c03e4b73ab605a33c71a66df0015d0b71bdfbc90f3d164a342"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 2,
+      "type": 2,
+      "packet_sha256": "3285a1d6d1c1d9b0630525775c09a1f37c85da2c32abd86348602e0bfc92d632"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 2,
+      "type": 5,
+      "packet_sha256": "16568ea48e679fb693726521381a3e45cbbb3e09ab619d8e882749e3cfd98bfa"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 2,
+      "type": 6,
+      "packet_sha256": "0225b7220e8fa692b2a656a6cad2f14e284bbdec0fe7cf5d397ef89c8863af18"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 3,
+      "type": 2,
+      "packet_sha256": "2f7ecb270d14ebc2d3b665d3c62e1c6d81dbae6711c0ec569a7e21d6a43cef4d"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 3,
+      "type": 5,
+      "packet_sha256": "968da803611132f44570d5e0210012871cf20fdc805ea315be912ff7c2bf0b39"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 5,
+      "overload": 3,
+      "type": 6,
+      "packet_sha256": "1d644936303fa32737760de62cfd8e23f309e811265b3d5d32b4ada320203ef2"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 0,
+      "type": 2,
+      "packet_sha256": "d543f158c3b38429d988a8ae62d305ceb8cecc745a5fa28676f82299adda9121"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 0,
+      "type": 5,
+      "packet_sha256": "e1e2dcf2f7f43b26b666674683fa668ef624494fa7b8c491b6fc3518dcac5860"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 0,
+      "type": 6,
+      "packet_sha256": "578ff24efc037020508afef115c65186534b56aa80bb4ebbef667d44edb09029"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 1,
+      "type": 2,
+      "packet_sha256": "9d583646e96d30e31759ed736bb2480614b3eaa2b674c00bd1ca38fccedb22f1"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 1,
+      "type": 5,
+      "packet_sha256": "c2d51785c363244c04986ed3e38160a67d7178e2c6645328056dbcbd245e8db9"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 1,
+      "type": 6,
+      "packet_sha256": "01baf57c494f64b368eb8b5ccca1cdab45bf7bbc9869513642b018c63355be17"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 2,
+      "type": 2,
+      "packet_sha256": "acec32063e6f1d0f7def660256100434b704a4aba48d6251340156cda371f19c"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 2,
+      "type": 5,
+      "packet_sha256": "00906ac2faded15f34631e629d7f53f5c182be34501138d6b6d852841f2f0c62"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 2,
+      "type": 6,
+      "packet_sha256": "cf151003d33eda19747dd997b4486a58f5556204d2ba6681247bab45a6db167e"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 3,
+      "type": 2,
+      "packet_sha256": "a86538ea3454b518d90ec374054bb8c92dcb901aab09ba49f48dd7104cf015e9"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 3,
+      "type": 5,
+      "packet_sha256": "ab936eb01e16a6086d41e93e475a574ca89b30491ba44e9fc787417ab6b51ef6"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 6,
+      "overload": 3,
+      "type": 6,
+      "packet_sha256": "01a1940d952415d40365fccf86c917f69fc2d097d4ef7bff79a2064d2622acd3"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 0,
+      "type": 2,
+      "packet_sha256": "ea786a0ba55cc09c8e1a82ce3a7cc4546cb356297feba4e1908d40fb29da5c31"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 0,
+      "type": 5,
+      "packet_sha256": "aa5658ddd707768c119594e1bdf19f6a3bb6e22d2cfab8cc11b85690061f9c04"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 0,
+      "type": 6,
+      "packet_sha256": "4285eaeb69fd273b01bca72c6c4404125c5d5615553b3d55da490c5a3cf1d3f6"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 1,
+      "type": 2,
+      "packet_sha256": "abf25e6441ffe9fafdb2d121db128cf19b3fac1a9135eac6497f33a3d8030415"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 1,
+      "type": 5,
+      "packet_sha256": "e9dc7ae91a71175a59f44615549704494c1c550a2a1b11c2ae4e6b49706fa8b1"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 1,
+      "type": 6,
+      "packet_sha256": "1f8a754b9f241853e1cc4f8927a1b403789c134fb4c95165189f232c8770bdc5"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 2,
+      "type": 2,
+      "packet_sha256": "7bafd212a4306f58cfb5f176a066aff4d7787b8a6014e7c2c89c1e97578359b8"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 2,
+      "type": 5,
+      "packet_sha256": "8a9dda1c706fd525275ec010368d4eaad06bade18fa349f1828ac831e827a0ee"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 2,
+      "type": 6,
+      "packet_sha256": "9b74cea3631a6fd2e5efb2f0009c2fe52c2fafabd8a05921668fb73af84599dc"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 3,
+      "type": 2,
+      "packet_sha256": "a262e92962b7644fc1a5b2b830b2657b6e701012305d2ed9690064a8f3b35e01"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 3,
+      "type": 5,
+      "packet_sha256": "44b1369940be8b4d7d6ab2f754bb5db1ed9d5a438a70a2b5c717456b7a5bbbd4"
+    },
+    {
+      "case": "valid-wire",
+      "ihl": 15,
+      "overload": 3,
+      "type": 6,
+      "packet_sha256": "de65e2136804eeb94fa7e5a2572e612489a3c6e63cd36cfd8b966203f9296f90"
+    },
+    {
+      "case": "prefix-0",
+      "rejected": true
+    },
+    {
+      "case": "prefix-1",
+      "rejected": true
+    },
+    {
+      "case": "prefix-2",
+      "rejected": true
+    },
+    {
+      "case": "prefix-3",
+      "rejected": true
+    },
+    {
+      "case": "prefix-4",
+      "rejected": true
+    },
+    {
+      "case": "prefix-5",
+      "rejected": true
+    },
+    {
+      "case": "prefix-6",
+      "rejected": true
+    },
+    {
+      "case": "prefix-7",
+      "rejected": true
+    },
+    {
+      "case": "prefix-8",
+      "rejected": true
+    },
+    {
+      "case": "prefix-9",
+      "rejected": true
+    },
+    {
+      "case": "prefix-10",
+      "rejected": true
+    },
+    {
+      "case": "prefix-11",
+      "rejected": true
+    },
+    {
+      "case": "prefix-12",
+      "rejected": true
+    },
+    {
+      "case": "prefix-13",
+      "rejected": true
+    },
+    {
+      "case": "prefix-14",
+      "rejected": true
+    },
+    {
+      "case": "prefix-15",
+      "rejected": true
+    },
+    {
+      "case": "prefix-16",
+      "rejected": true
+    },
+    {
+      "case": "prefix-17",
+      "rejected": true
+    },
+    {
+      "case": "prefix-18",
+      "rejected": true
+    },
+    {
+      "case": "prefix-19",
+      "rejected": true
+    },
+    {
+      "case": "prefix-20",
+      "rejected": true
+    },
+    {
+      "case": "prefix-21",
+      "rejected": true
+    },
+    {
+      "case": "prefix-22",
+      "rejected": true
+    },
+    {
+      "case": "prefix-23",
+      "rejected": true
+    },
+    {
+      "case": "prefix-24",
+      "rejected": true
+    },
+    {
+      "case": "prefix-25",
+      "rejected": true
+    },
+    {
+      "case": "prefix-26",
+      "rejected": true
+    },
+    {
+      "case": "prefix-27",
+      "rejected": true
+    },
+    {
+      "case": "prefix-28",
+      "rejected": true
+    },
+    {
+      "case": "prefix-29",
+      "rejected": true
+    },
+    {
+      "case": "prefix-30",
+      "rejected": true
+    },
+    {
+      "case": "prefix-31",
+      "rejected": true
+    },
+    {
+      "case": "prefix-32",
+      "rejected": true
+    },
+    {
+      "case": "prefix-33",
+      "rejected": true
+    },
+    {
+      "case": "prefix-34",
+      "rejected": true
+    },
+    {
+      "case": "prefix-35",
+      "rejected": true
+    },
+    {
+      "case": "prefix-36",
+      "rejected": true
+    },
+    {
+      "case": "prefix-37",
+      "rejected": true
+    },
+    {
+      "case": "prefix-38",
+      "rejected": true
+    },
+    {
+      "case": "prefix-39",
+      "rejected": true
+    },
+    {
+      "case": "prefix-40",
+      "rejected": true
+    },
+    {
+      "case": "prefix-41",
+      "rejected": true
+    },
+    {
+      "case": "prefix-42",
+      "rejected": true
+    },
+    {
+      "case": "prefix-43",
+      "rejected": true
+    },
+    {
+      "case": "prefix-44",
+      "rejected": true
+    },
+    {
+      "case": "prefix-45",
+      "rejected": true
+    },
+    {
+      "case": "prefix-46",
+      "rejected": true
+    },
+    {
+      "case": "prefix-47",
+      "rejected": true
+    },
+    {
+      "case": "prefix-48",
+      "rejected": true
+    },
+    {
+      "case": "prefix-49",
+      "rejected": true
+    },
+    {
+      "case": "prefix-50",
+      "rejected": true
+    },
+    {
+      "case": "prefix-51",
+      "rejected": true
+    },
+    {
+      "case": "prefix-52",
+      "rejected": true
+    },
+    {
+      "case": "prefix-53",
+      "rejected": true
+    },
+    {
+      "case": "prefix-54",
+      "rejected": true
+    },
+    {
+      "case": "prefix-55",
+      "rejected": true
+    },
+    {
+      "case": "prefix-56",
+      "rejected": true
+    },
+    {
+      "case": "prefix-57",
+      "rejected": true
+    },
+    {
+      "case": "prefix-58",
+      "rejected": true
+    },
+    {
+      "case": "prefix-59",
+      "rejected": true
+    },
+    {
+      "case": "prefix-60",
+      "rejected": true
+    },
+    {
+      "case": "prefix-61",
+      "rejected": true
+    },
+    {
+      "case": "prefix-62",
+      "rejected": true
+    },
+    {
+      "case": "prefix-63",
+      "rejected": true
+    },
+    {
+      "case": "prefix-64",
+      "rejected": true
+    },
+    {
+      "case": "prefix-65",
+      "rejected": true
+    },
+    {
+      "case": "prefix-66",
+      "rejected": true
+    },
+    {
+      "case": "prefix-67",
+      "rejected": true
+    },
+    {
+      "case": "prefix-68",
+      "rejected": true
+    },
+    {
+      "case": "prefix-69",
+      "rejected": true
+    },
+    {
+      "case": "prefix-70",
+      "rejected": true
+    },
+    {
+      "case": "prefix-71",
+      "rejected": true
+    },
+    {
+      "case": "prefix-72",
+      "rejected": true
+    },
+    {
+      "case": "prefix-73",
+      "rejected": true
+    },
+    {
+      "case": "prefix-74",
+      "rejected": true
+    },
+    {
+      "case": "prefix-75",
+      "rejected": true
+    },
+    {
+      "case": "prefix-76",
+      "rejected": true
+    },
+    {
+      "case": "prefix-77",
+      "rejected": true
+    },
+    {
+      "case": "prefix-78",
+      "rejected": true
+    },
+    {
+      "case": "prefix-79",
+      "rejected": true
+    },
+    {
+      "case": "prefix-80",
+      "rejected": true
+    },
+    {
+      "case": "prefix-81",
+      "rejected": true
+    },
+    {
+      "case": "prefix-82",
+      "rejected": true
+    },
+    {
+      "case": "prefix-83",
+      "rejected": true
+    },
+    {
+      "case": "prefix-84",
+      "rejected": true
+    },
+    {
+      "case": "prefix-85",
+      "rejected": true
+    },
+    {
+      "case": "prefix-86",
+      "rejected": true
+    },
+    {
+      "case": "prefix-87",
+      "rejected": true
+    },
+    {
+      "case": "prefix-88",
+      "rejected": true
+    },
+    {
+      "case": "prefix-89",
+      "rejected": true
+    },
+    {
+      "case": "prefix-90",
+      "rejected": true
+    },
+    {
+      "case": "prefix-91",
+      "rejected": true
+    },
+    {
+      "case": "prefix-92",
+      "rejected": true
+    },
+    {
+      "case": "prefix-93",
+      "rejected": true
+    },
+    {
+      "case": "prefix-94",
+      "rejected": true
+    },
+    {
+      "case": "prefix-95",
+      "rejected": true
+    },
+    {
+      "case": "prefix-96",
+      "rejected": true
+    },
+    {
+      "case": "prefix-97",
+      "rejected": true
+    },
+    {
+      "case": "prefix-98",
+      "rejected": true
+    },
+    {
+      "case": "prefix-99",
+      "rejected": true
+    },
+    {
+      "case": "prefix-100",
+      "rejected": true
+    },
+    {
+      "case": "prefix-101",
+      "rejected": true
+    },
+    {
+      "case": "prefix-102",
+      "rejected": true
+    },
+    {
+      "case": "prefix-103",
+      "rejected": true
+    },
+    {
+      "case": "prefix-104",
+      "rejected": true
+    },
+    {
+      "case": "prefix-105",
+      "rejected": true
+    },
+    {
+      "case": "prefix-106",
+      "rejected": true
+    },
+    {
+      "case": "prefix-107",
+      "rejected": true
+    },
+    {
+      "case": "prefix-108",
+      "rejected": true
+    },
+    {
+      "case": "prefix-109",
+      "rejected": true
+    },
+    {
+      "case": "prefix-110",
+      "rejected": true
+    },
+    {
+      "case": "prefix-111",
+      "rejected": true
+    },
+    {
+      "case": "prefix-112",
+      "rejected": true
+    },
+    {
+      "case": "prefix-113",
+      "rejected": true
+    },
+    {
+      "case": "prefix-114",
+      "rejected": true
+    },
+    {
+      "case": "prefix-115",
+      "rejected": true
+    },
+    {
+      "case": "prefix-116",
+      "rejected": true
+    },
+    {
+      "case": "prefix-117",
+      "rejected": true
+    },
+    {
+      "case": "prefix-118",
+      "rejected": true
+    },
+    {
+      "case": "prefix-119",
+      "rejected": true
+    },
+    {
+      "case": "prefix-120",
+      "rejected": true
+    },
+    {
+      "case": "prefix-121",
+      "rejected": true
+    },
+    {
+      "case": "prefix-122",
+      "rejected": true
+    },
+    {
+      "case": "prefix-123",
+      "rejected": true
+    },
+    {
+      "case": "prefix-124",
+      "rejected": true
+    },
+    {
+      "case": "prefix-125",
+      "rejected": true
+    },
+    {
+      "case": "prefix-126",
+      "rejected": true
+    },
+    {
+      "case": "prefix-127",
+      "rejected": true
+    },
+    {
+      "case": "prefix-128",
+      "rejected": true
+    },
+    {
+      "case": "prefix-129",
+      "rejected": true
+    },
+    {
+      "case": "prefix-130",
+      "rejected": true
+    },
+    {
+      "case": "prefix-131",
+      "rejected": true
+    },
+    {
+      "case": "prefix-132",
+      "rejected": true
+    },
+    {
+      "case": "prefix-133",
+      "rejected": true
+    },
+    {
+      "case": "prefix-134",
+      "rejected": true
+    },
+    {
+      "case": "prefix-135",
+      "rejected": true
+    },
+    {
+      "case": "prefix-136",
+      "rejected": true
+    },
+    {
+      "case": "prefix-137",
+      "rejected": true
+    },
+    {
+      "case": "prefix-138",
+      "rejected": true
+    },
+    {
+      "case": "prefix-139",
+      "rejected": true
+    },
+    {
+      "case": "prefix-140",
+      "rejected": true
+    },
+    {
+      "case": "prefix-141",
+      "rejected": true
+    },
+    {
+      "case": "prefix-142",
+      "rejected": true
+    },
+    {
+      "case": "prefix-143",
+      "rejected": true
+    },
+    {
+      "case": "prefix-144",
+      "rejected": true
+    },
+    {
+      "case": "prefix-145",
+      "rejected": true
+    },
+    {
+      "case": "prefix-146",
+      "rejected": true
+    },
+    {
+      "case": "prefix-147",
+      "rejected": true
+    },
+    {
+      "case": "prefix-148",
+      "rejected": true
+    },
+    {
+      "case": "prefix-149",
+      "rejected": true
+    },
+    {
+      "case": "prefix-150",
+      "rejected": true
+    },
+    {
+      "case": "prefix-151",
+      "rejected": true
+    },
+    {
+      "case": "prefix-152",
+      "rejected": true
+    },
+    {
+      "case": "prefix-153",
+      "rejected": true
+    },
+    {
+      "case": "prefix-154",
+      "rejected": true
+    },
+    {
+      "case": "prefix-155",
+      "rejected": true
+    },
+    {
+      "case": "prefix-156",
+      "rejected": true
+    },
+    {
+      "case": "prefix-157",
+      "rejected": true
+    },
+    {
+      "case": "prefix-158",
+      "rejected": true
+    },
+    {
+      "case": "prefix-159",
+      "rejected": true
+    },
+    {
+      "case": "prefix-160",
+      "rejected": true
+    },
+    {
+      "case": "prefix-161",
+      "rejected": true
+    },
+    {
+      "case": "prefix-162",
+      "rejected": true
+    },
+    {
+      "case": "prefix-163",
+      "rejected": true
+    },
+    {
+      "case": "prefix-164",
+      "rejected": true
+    },
+    {
+      "case": "prefix-165",
+      "rejected": true
+    },
+    {
+      "case": "prefix-166",
+      "rejected": true
+    },
+    {
+      "case": "prefix-167",
+      "rejected": true
+    },
+    {
+      "case": "prefix-168",
+      "rejected": true
+    },
+    {
+      "case": "prefix-169",
+      "rejected": true
+    },
+    {
+      "case": "prefix-170",
+      "rejected": true
+    },
+    {
+      "case": "prefix-171",
+      "rejected": true
+    },
+    {
+      "case": "prefix-172",
+      "rejected": true
+    },
+    {
+      "case": "prefix-173",
+      "rejected": true
+    },
+    {
+      "case": "prefix-174",
+      "rejected": true
+    },
+    {
+      "case": "prefix-175",
+      "rejected": true
+    },
+    {
+      "case": "prefix-176",
+      "rejected": true
+    },
+    {
+      "case": "prefix-177",
+      "rejected": true
+    },
+    {
+      "case": "prefix-178",
+      "rejected": true
+    },
+    {
+      "case": "prefix-179",
+      "rejected": true
+    },
+    {
+      "case": "prefix-180",
+      "rejected": true
+    },
+    {
+      "case": "prefix-181",
+      "rejected": true
+    },
+    {
+      "case": "prefix-182",
+      "rejected": true
+    },
+    {
+      "case": "prefix-183",
+      "rejected": true
+    },
+    {
+      "case": "prefix-184",
+      "rejected": true
+    },
+    {
+      "case": "prefix-185",
+      "rejected": true
+    },
+    {
+      "case": "prefix-186",
+      "rejected": true
+    },
+    {
+      "case": "prefix-187",
+      "rejected": true
+    },
+    {
+      "case": "prefix-188",
+      "rejected": true
+    },
+    {
+      "case": "prefix-189",
+      "rejected": true
+    },
+    {
+      "case": "prefix-190",
+      "rejected": true
+    },
+    {
+      "case": "prefix-191",
+      "rejected": true
+    },
+    {
+      "case": "prefix-192",
+      "rejected": true
+    },
+    {
+      "case": "prefix-193",
+      "rejected": true
+    },
+    {
+      "case": "prefix-194",
+      "rejected": true
+    },
+    {
+      "case": "prefix-195",
+      "rejected": true
+    },
+    {
+      "case": "prefix-196",
+      "rejected": true
+    },
+    {
+      "case": "prefix-197",
+      "rejected": true
+    },
+    {
+      "case": "prefix-198",
+      "rejected": true
+    },
+    {
+      "case": "prefix-199",
+      "rejected": true
+    },
+    {
+      "case": "prefix-200",
+      "rejected": true
+    },
+    {
+      "case": "prefix-201",
+      "rejected": true
+    },
+    {
+      "case": "prefix-202",
+      "rejected": true
+    },
+    {
+      "case": "prefix-203",
+      "rejected": true
+    },
+    {
+      "case": "prefix-204",
+      "rejected": true
+    },
+    {
+      "case": "prefix-205",
+      "rejected": true
+    },
+    {
+      "case": "prefix-206",
+      "rejected": true
+    },
+    {
+      "case": "prefix-207",
+      "rejected": true
+    },
+    {
+      "case": "prefix-208",
+      "rejected": true
+    },
+    {
+      "case": "prefix-209",
+      "rejected": true
+    },
+    {
+      "case": "prefix-210",
+      "rejected": true
+    },
+    {
+      "case": "prefix-211",
+      "rejected": true
+    },
+    {
+      "case": "prefix-212",
+      "rejected": true
+    },
+    {
+      "case": "prefix-213",
+      "rejected": true
+    },
+    {
+      "case": "prefix-214",
+      "rejected": true
+    },
+    {
+      "case": "prefix-215",
+      "rejected": true
+    },
+    {
+      "case": "prefix-216",
+      "rejected": true
+    },
+    {
+      "case": "prefix-217",
+      "rejected": true
+    },
+    {
+      "case": "prefix-218",
+      "rejected": true
+    },
+    {
+      "case": "prefix-219",
+      "rejected": true
+    },
+    {
+      "case": "prefix-220",
+      "rejected": true
+    },
+    {
+      "case": "prefix-221",
+      "rejected": true
+    },
+    {
+      "case": "prefix-222",
+      "rejected": true
+    },
+    {
+      "case": "prefix-223",
+      "rejected": true
+    },
+    {
+      "case": "prefix-224",
+      "rejected": true
+    },
+    {
+      "case": "prefix-225",
+      "rejected": true
+    },
+    {
+      "case": "prefix-226",
+      "rejected": true
+    },
+    {
+      "case": "prefix-227",
+      "rejected": true
+    },
+    {
+      "case": "prefix-228",
+      "rejected": true
+    },
+    {
+      "case": "prefix-229",
+      "rejected": true
+    },
+    {
+      "case": "prefix-230",
+      "rejected": true
+    },
+    {
+      "case": "prefix-231",
+      "rejected": true
+    },
+    {
+      "case": "prefix-232",
+      "rejected": true
+    },
+    {
+      "case": "prefix-233",
+      "rejected": true
+    },
+    {
+      "case": "prefix-234",
+      "rejected": true
+    },
+    {
+      "case": "prefix-235",
+      "rejected": true
+    },
+    {
+      "case": "prefix-236",
+      "rejected": true
+    },
+    {
+      "case": "prefix-237",
+      "rejected": true
+    },
+    {
+      "case": "prefix-238",
+      "rejected": true
+    },
+    {
+      "case": "prefix-239",
+      "rejected": true
+    },
+    {
+      "case": "prefix-240",
+      "rejected": true
+    },
+    {
+      "case": "prefix-241",
+      "rejected": true
+    },
+    {
+      "case": "prefix-242",
+      "rejected": true
+    },
+    {
+      "case": "prefix-243",
+      "rejected": true
+    },
+    {
+      "case": "prefix-244",
+      "rejected": true
+    },
+    {
+      "case": "prefix-245",
+      "rejected": true
+    },
+    {
+      "case": "prefix-246",
+      "rejected": true
+    },
+    {
+      "case": "prefix-247",
+      "rejected": true
+    },
+    {
+      "case": "prefix-248",
+      "rejected": true
+    },
+    {
+      "case": "prefix-249",
+      "rejected": true
+    },
+    {
+      "case": "prefix-250",
+      "rejected": true
+    },
+    {
+      "case": "prefix-251",
+      "rejected": true
+    },
+    {
+      "case": "prefix-252",
+      "rejected": true
+    },
+    {
+      "case": "prefix-253",
+      "rejected": true
+    },
+    {
+      "case": "prefix-254",
+      "rejected": true
+    },
+    {
+      "case": "prefix-255",
+      "rejected": true
+    },
+    {
+      "case": "prefix-256",
+      "rejected": true
+    },
+    {
+      "case": "prefix-257",
+      "rejected": true
+    },
+    {
+      "case": "prefix-258",
+      "rejected": true
+    },
+    {
+      "case": "prefix-259",
+      "rejected": true
+    },
+    {
+      "case": "prefix-260",
+      "rejected": true
+    },
+    {
+      "case": "prefix-261",
+      "rejected": true
+    },
+    {
+      "case": "prefix-262",
+      "rejected": true
+    },
+    {
+      "case": "prefix-263",
+      "rejected": true
+    },
+    {
+      "case": "prefix-264",
+      "rejected": true
+    },
+    {
+      "case": "prefix-265",
+      "rejected": true
+    },
+    {
+      "case": "prefix-266",
+      "rejected": true
+    },
+    {
+      "case": "prefix-267",
+      "rejected": true
+    },
+    {
+      "case": "prefix-268",
+      "rejected": true
+    },
+    {
+      "case": "prefix-269",
+      "rejected": true
+    },
+    {
+      "case": "prefix-270",
+      "rejected": true
+    },
+    {
+      "case": "prefix-271",
+      "rejected": true
+    },
+    {
+      "case": "prefix-272",
+      "rejected": true
+    },
+    {
+      "case": "prefix-273",
+      "rejected": true
+    },
+    {
+      "case": "prefix-274",
+      "rejected": true
+    },
+    {
+      "case": "prefix-275",
+      "rejected": true
+    },
+    {
+      "case": "prefix-276",
+      "rejected": true
+    },
+    {
+      "case": "prefix-277",
+      "rejected": true
+    },
+    {
+      "case": "prefix-278",
+      "rejected": true
+    },
+    {
+      "case": "prefix-279",
+      "rejected": true
+    },
+    {
+      "case": "prefix-280",
+      "rejected": true
+    },
+    {
+      "case": "prefix-281",
+      "rejected": true
+    },
+    {
+      "case": "prefix-282",
+      "rejected": true
+    },
+    {
+      "case": "prefix-283",
+      "rejected": true
+    },
+    {
+      "case": "prefix-284",
+      "rejected": true
+    },
+    {
+      "case": "prefix-285",
+      "rejected": true
+    },
+    {
+      "case": "prefix-286",
+      "rejected": true
+    },
+    {
+      "case": "not-snap",
+      "rejected": true
+    },
+    {
+      "case": "not-ipv4",
+      "rejected": true
+    },
+    {
+      "case": "short-ihl",
+      "rejected": true
+    },
+    {
+      "case": "tcp",
+      "rejected": true
+    },
+    {
+      "case": "fragment-offset",
+      "rejected": true
+    },
+    {
+      "case": "more-fragments",
+      "rejected": true
+    },
+    {
+      "case": "wrong-source-port",
+      "rejected": true
+    },
+    {
+      "case": "wrong-destination-port",
+      "rejected": true
+    },
+    {
+      "case": "request-not-reply",
+      "rejected": true
+    },
+    {
+      "case": "wrong-hardware",
+      "rejected": true
+    },
+    {
+      "case": "short-mac",
+      "rejected": true
+    },
+    {
+      "case": "bad-cookie",
+      "rejected": true
+    },
+    {
+      "case": "ip-length-low",
+      "rejected": true
+    },
+    {
+      "case": "ip-length-high",
+      "rejected": true
+    },
+    {
+      "case": "udp-length-high",
+      "rejected": true
+    },
+    {
+      "case": "udp-length-low",
+      "rejected": true
+    },
+    {
+      "case": "missing-type",
+      "rejected": true
+    },
+    {
+      "case": "missing-server",
+      "rejected": true
+    },
+    {
+      "case": "missing-end",
+      "rejected": true
+    },
+    {
+      "case": "missing-option-length",
+      "rejected": true
+    },
+    {
+      "case": "short-option",
+      "rejected": true
+    },
+    {
+      "case": "duplicate-type",
+      "rejected": true
+    },
+    {
+      "case": "duplicate-server",
+      "rejected": true
+    },
+    {
+      "case": "invalid-overload",
+      "rejected": true
+    },
+    {
+      "case": "empty-type",
+      "rejected": true
+    },
+    {
+      "case": "transaction-and-state-sequence",
+      "passed": true
+    }
+  ],
+  "guard_page_truncations": 905,
+  "random_non_dhcp_packets": 10000,
+  "guest_integration": false,
+  "rf_acceptance": false,
+  "lease_renewal_tested": false
+}

@@ -231,6 +231,7 @@ void Esp32_WLAN_set_softap_clients(Esp32C3WifiState *s, uint32_t mask)
             }
             peer->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
             memset(peer->offered_ipaddr, 0, sizeof(peer->offered_ipaddr));
+            memset(&peer->dhcp, 0, sizeof(peer->dhcp));
         }
     }
     s->softap_client_mask = mask;
@@ -1003,6 +1004,8 @@ static void handle_interface_frame(Esp32C3WifiState *s, struct mac80211_frame *f
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_ASSOCIATION_RESP:
                 if(DEBUG) printf("assoc resp\n");
+                memset(&s->wlan->dhcp, 0, sizeof(s->wlan->dhcp));
+                memset(s->wlan->offered_ipaddr, 0, sizeof(s->wlan->offered_ipaddr));
                 mac80211_frame *frame1=Esp32_WLAN_create_dhcp_discover(s);
                 memcpy(frame1->bssid_address,BROADCAST,6);
                 memcpy(frame1->source_address,frame->destination_address,6);
@@ -1066,21 +1069,39 @@ static void handle_interface_frame(Esp32C3WifiState *s, struct mac80211_frame *f
     }
     if ((frame->frame_control.type == IEEE80211_TYPE_DATA) &&
         (frame->frame_control.sub_type == IEEE80211_TYPE_DATA_SUBTYPE_DATA)) {
-        if(s->wlan->ap_state == Esp32_WLAN__STATE_STA_DHCP) {
-            dhcp_request_t *req=(dhcp_request_t *)&frame->data_and_fcs[8];
-            // check for a dhcp offer
-            if(req->dhcp.bp_options[0]==0x35 && req->dhcp.bp_options[2]==0x2) {
-                memcpy(s->wlan->offered_ipaddr, req->dhcp.yiaddr, 4);
-                mac80211_frame *frame1=Esp32_WLAN_create_dhcp_request(s,req->dhcp.yiaddr);
-                memcpy(frame1->bssid_address,BROADCAST,6);
-                memcpy(frame1->source_address,s->wlan->ap_macaddr,6);
-                memcpy(frame1->destination_address,frame->source_address,6);
-                send_single_frame(s,0,frame1);
-                //memcpy(s->wlan->ap_macaddr,(uint8_t[]){0x10,0x01,0x00,0xc4,0x0a,0x25},sizeof(s->wlan->ap_macaddr));
-                //memcpy(s->wlan->associated_ap_macaddr,s->wlan->ap_macaddr,sizeof(s->wlan->ap_macaddr));
-                memcpy(s->wlan->associated_ap_macaddr,s->wlan->macaddr,sizeof(s->wlan->macaddr));
-                s->wlan->ap_state=Esp32_WLAN__STATE_STA_ASSOCIATED;
-                if(DEBUG) printf("Dhcp received addr %d.%d.%d.%d\n",req->dhcp.yiaddr[0],req->dhcp.yiaddr[1],req->dhcp.yiaddr[2],req->dhcp.yiaddr[3]);
+        if (s->wlan->ap_state == Esp32_WLAN__STATE_STA_DHCP ||
+            s->wlan->ap_state == Esp32_WLAN__STATE_STA_DHCP_REQUESTING) {
+            Esp32WifiDhcpReply dhcp_reply;
+            if (frame->frame_length >= IEEE80211_HEADER_SIZE + 8 + 4 &&
+                esp32_wifi_dhcp_reply(frame->data_and_fcs,
+                    frame->frame_length - IEEE80211_HEADER_SIZE - 4, &dhcp_reply)) {
+                enum Esp32WifiDhcpAction action = esp32_wifi_dhcp_accept(
+                    &s->wlan->dhcp, &dhcp_reply, s->wlan->ap_macaddr);
+                mac80211_frame *request = NULL;
+                switch (action) {
+                case ESP32_DHCP_SEND_REQUEST:
+                    memcpy(s->wlan->offered_ipaddr, s->wlan->dhcp.address, 4);
+                    request = Esp32_WLAN_create_dhcp_request(s, s->wlan->dhcp.address);
+                    s->wlan->ap_state = Esp32_WLAN__STATE_STA_DHCP_REQUESTING;
+                    break;
+                case ESP32_DHCP_LEASE_BOUND:
+                    memcpy(s->wlan->associated_ap_macaddr, s->wlan->macaddr, 6);
+                    s->wlan->ap_state = Esp32_WLAN__STATE_STA_ASSOCIATED;
+                    break;
+                case ESP32_DHCP_RESTART:
+                    memset(s->wlan->offered_ipaddr, 0, sizeof(s->wlan->offered_ipaddr));
+                    request = Esp32_WLAN_create_dhcp_discover(s);
+                    s->wlan->ap_state = Esp32_WLAN__STATE_STA_DHCP;
+                    break;
+                case ESP32_DHCP_IGNORE:
+                    break;
+                }
+                if (request) {
+                    memcpy(request->bssid_address, BROADCAST, 6);
+                    memcpy(request->source_address, s->wlan->ap_macaddr, 6);
+                    memcpy(request->destination_address, frame->source_address, 6);
+                    send_single_frame(s, NULL, request);
+                }
             }
         } else if (s->wlan->ap_state == Esp32_WLAN__STATE_ASSOCIATED || s->wlan->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
             /*
