@@ -38,6 +38,11 @@ enum {
     CMD_WRDI = 0x4,
     CMD_WREN = 0x6,
     CMD_READ = 0x03,
+    CMD_FAST_READ = 0x0b,
+    CMD_DOUT = 0x3b,
+    CMD_QOUT = 0x6b,
+    CMD_DIO = 0xbb,
+    CMD_QIO = 0xeb,
 };
 
 
@@ -89,6 +94,9 @@ static uint64_t esp32_spi_read(void *opaque, hwaddr addr, unsigned int size)
         break;
     case A_SPI_CTRL2:
         r = s->ctrl2_reg;
+        break;
+    case A_SPI_CLOCK:
+        r = s->clock_reg;
         break;
     case A_SPI_USER:
         r = s->user_reg;
@@ -153,6 +161,9 @@ static void esp32_spi_write(void *opaque, hwaddr addr,
     case A_SPI_CTRL2:
         s->ctrl2_reg = value;
         break;
+    case A_SPI_CLOCK:
+        s->clock_reg = value;
+        break;
     case A_SPI_USER:
         s->user_reg = value;
         break;
@@ -195,6 +206,7 @@ typedef struct Esp32SpiTransaction {
     uint32_t cmd;
     int addr_bytes;
     uint32_t addr;
+    int dummy_bytes;
     int data_tx_bytes;
     int data_rx_bytes;
     uint32_t* data;
@@ -333,6 +345,9 @@ static void esp32_spi_transaction(Esp32SpiState *s, Esp32SpiTransaction *t)
     esp32_spi_cs_set(s, 0);
     esp32_spi_txrx_buffer(s, &t->cmd, t->cmd_bytes, NULL, 0);
     esp32_spi_txrx_buffer(s, &t->addr, t->addr_bytes, NULL, 0);
+    for (int i = 0; i < t->dummy_bytes; ++i) {
+        ssi_transfer(s->spi, 0xff);
+    }
     esp32_spi_txrx_buffer(s, tx, t->data_tx_bytes,
                           rx, t->data_rx_bytes);
     esp32_spi_cs_set(s, 1);
@@ -354,6 +369,68 @@ static inline int bitlen_to_bytes(uint32_t val)
     return (val + 1 + 7) / 8; /* bitlen registers hold number of bits, minus one */
 }
 
+/* Collapse an optional input-path delay and the guest's compensating clocks.
+ * The flash source is fixed at 80 MHz; analog/per-bit timing is not modeled. */
+static unsigned esp32_spi_input_delay_cycles(const Esp32SpiState *s)
+{
+    unsigned divider = 1;
+    if (!FIELD_EX32(s->clock_reg, SPI_CLOCK, CLK_EQU_SYSCLK)) {
+        divider = (FIELD_EX32(s->clock_reg, SPI_CLOCK, CLKDIV_PRE) + 1) *
+                  (FIELD_EX32(s->clock_reg, SPI_CLOCK, CLKCNT_N) + 1);
+    }
+    uint64_t apb_cycles = ((uint64_t)s->input_delay_ns + 1) * 80 / 1000;
+    return apb_cycles / divider;
+}
+
+static int esp32_spi_dummy_bytes(Esp32SpiState *s, unsigned addr_bits,
+                                 bool receive_only)
+{
+    unsigned clocks, lanes = 1;
+
+    if (!FIELD_EX32(s->user_reg, SPI_USER, DUMMY)) {
+        return 0;
+    }
+    clocks = FIELD_EX32(s->user1_reg, SPI_USER1, DUMMY_CYCLELEN) + 1;
+    if (receive_only) {
+        clocks -= MIN(clocks, esp32_spi_input_delay_cycles(s));
+    }
+    /* DOUT/QOUT keep the address and dummy phases on one wire. */
+    if (FIELD_EX32(s->ctrl_reg, SPI_CTRL, FREAD_QIO)) {
+        lanes = 4;
+    } else if (FIELD_EX32(s->ctrl_reg, SPI_CTRL, FREAD_DIO)) {
+        lanes = 2;
+    }
+    /*
+     * SSI transfers complete wire bytes and does not model fractional-bit
+     * sampling delays. ESP-IDF may add a sampling-compensation clock; rounding
+     * that remainder up would consume a complete byte of actual flash data.
+     * Classic ESP32 also packs four QIO/DIO mode bits into the final address
+     * byte. Count complete combined bytes, excluding address bytes already
+     * sent. Arbitrary partial-bit waveforms and analog latency are not modeled.
+     */
+    unsigned addr_bytes = DIV_ROUND_UP(addr_bits, 8);
+    unsigned wire_bytes = (addr_bits + clocks * lanes) / 8;
+    return wire_bytes > addr_bytes ? wire_bytes - addr_bytes : 0;
+}
+
+static uint8_t esp32_spi_read_opcode(Esp32SpiState *s)
+{
+    if (FIELD_EX32(s->ctrl_reg, SPI_CTRL, FREAD_QIO)) {
+        return CMD_QIO;
+    }
+    if (FIELD_EX32(s->ctrl_reg, SPI_CTRL, FREAD_DIO)) {
+        return CMD_DIO;
+    }
+    if (FIELD_EX32(s->ctrl_reg, SPI_CTRL, FREAD_QUAD)) {
+        return CMD_QOUT;
+    }
+    if (FIELD_EX32(s->ctrl_reg, SPI_CTRL, FREAD_DUAL)) {
+        return CMD_DOUT;
+    }
+    return FIELD_EX32(s->ctrl_reg, SPI_CTRL, FASTRD_MODE) ?
+           CMD_FAST_READ : CMD_READ;
+}
+
 static void maybe_encrypt_data(Esp32SpiState *s)
 {
     Esp32FlashEncryptionState* flash_enc = esp32_flash_encryption_find();
@@ -364,14 +441,17 @@ static void maybe_encrypt_data(Esp32SpiState *s)
 
 static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
 {
+    unsigned addr_bits = 0;
     Esp32SpiTransaction t = {
         .cmd_bytes = 1
     };
     switch (cmd_reg) {
     case R_SPI_CMD_READ_MASK:
-        t.cmd = CMD_READ;
+        t.cmd = esp32_spi_read_opcode(s);
+        addr_bits = FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN) + 1;
         t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
         t.addr = bswap32(s->addr_reg) >> (32 - t.addr_bytes * 8);
+        t.dummy_bytes = esp32_spi_dummy_bytes(s, addr_bits, true);
         t.data = &s->data_reg[0];
         t.data_rx_bytes = bitlen_to_bytes(s->miso_dlen_reg);
         break;
@@ -447,9 +527,14 @@ static void esp32_spi_do_command(Esp32SpiState* s, uint32_t cmd_reg)
             t.cmd_bytes = 0;
         }
         if (FIELD_EX32(s->user_reg, SPI_USER, ADDR)) {
+            addr_bits = FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN) + 1;
             t.addr_bytes = bitlen_to_bytes(FIELD_EX32(s->user1_reg, SPI_USER1, ADDR_BITLEN));
             t.addr = bswap32(s->addr_reg);
         }
+        t.dummy_bytes = esp32_spi_dummy_bytes(s, addr_bits,
+            FIELD_EX32(s->user_reg, SPI_USER, MISO) &&
+            !FIELD_EX32(s->user_reg, SPI_USER, MOSI) &&
+            !FIELD_EX32(s->user_reg, SPI_USER, DOUTDIN));
         if (FIELD_EX32(s->user_reg, SPI_USER, MOSI)) {
             t.data = &s->data_reg[0];
             t.data_tx_bytes = bitlen_to_bytes(s->mosi_dlen_reg);
@@ -491,6 +576,7 @@ static void esp32_spi_reset_hold(Object *obj, ResetType type)
 {
     Esp32SpiState *s = ESP32_SPI(obj);
     s->pin_reg = 0x6;
+    s->clock_reg = 0x80003043;
     s->user1_reg = FIELD_DP32(0, SPI_USER1, ADDR_BITLEN, 23);
     s->user1_reg = FIELD_DP32(s->user1_reg, SPI_USER1, DUMMY_CYCLELEN, 7);
     s->user2_reg = FIELD_DP32(0, SPI_USER2, COMMAND_BITLEN, 4);
@@ -523,6 +609,7 @@ static void esp32_spi_init(Object *obj)
 }
 
 static Property esp32_spi_properties[] = {
+    DEFINE_PROP_UINT32("input-delay-ns", Esp32SpiState, input_delay_ns, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 

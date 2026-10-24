@@ -749,6 +749,8 @@ static void esp32_machine_init_spi_flash(Esp32SocState *ss, BlockBackend* blk)
 
     DeviceState *flash_dev = qdev_new(flash_chip_model);
     qdev_prop_set_drive(flash_dev, "drive", blk);
+    /* The SPI controller sends complete wire bytes during dummy phases. */
+    qdev_prop_set_bit(flash_dev, "byte-dummy-cycles", true);
     qdev_prop_set_uint8(flash_dev, "cs", 0);
     qdev_realize_and_unref(flash_dev, spi_bus, &error_fatal);
     qdev_connect_gpio_out_named(spi_master, SSI_GPIO_CS, 0,
