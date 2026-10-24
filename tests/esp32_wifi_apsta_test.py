@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import json
 from pathlib import Path
 import socket
 import struct
@@ -18,23 +19,87 @@ SSID = b'Small_TV'
 
 
 class Machine(services.Machine):
+    @staticmethod
+    def dhcp_request(frames, kind):
+        """Read the actual client's transaction and options from DMA packets."""
+        found = []
+        for frame in frames:
+            offset = frame.find(services.LLC)
+            if offset < 0:
+                continue
+            ip = frame[offset + len(services.LLC):]
+            ihl = (ip[0] & 15) * 4
+            assert ip[0] >> 4 == 4 and ihl >= 20 and ip[9] == 17
+            assert struct.unpack_from('!HH', ip, ihl) == (68, 67)
+            udp_length = struct.unpack_from('!H', ip, ihl + 4)[0]
+            assert 8 + 240 <= udp_length <= len(ip) - ihl
+            bootp = ip[ihl + 8:ihl + udp_length]
+            assert bootp[:3] == bytes([1, 1, 6]) and bootp[28:34] == CLIENT
+            assert bootp[236:240] == bytes.fromhex('63825363')
+            options, position = {}, 240
+            while position < len(bootp):
+                tag = bootp[position]
+                position += 1
+                if tag == 255:
+                    break
+                if tag == 0:
+                    continue
+                assert position < len(bootp)
+                length = bootp[position]
+                position += 1
+                assert position + length <= len(bootp) and tag not in options
+                options[tag] = bootp[position:position + length]
+                position += length
+            else:
+                raise AssertionError('DHCP request has no END option')
+            if options.get(53) == bytes([kind]):
+                found.append((bootp[4:8], options))
+        assert len(found) == 1, ('Expected one DHCP request', kind, len(found))
+        return found[0]
+
     def complete_softap(self):
-        """Run the AP client's actual probe/auth/association and DHCP exchange."""
+        """Complete real DHCP and reject an ACK for a different transaction."""
+        # FIXED_TEST: OFFER alone with xid=0 never establishes a valid lease.
+        # Follow the client's wire transaction; do not inject its model state.
         self.beacon()
         self.management(5, bytes(8) + struct.pack('<HH', 100, 1) + bytes([0, len(SSID)]) + SSID)
         self.management(11, struct.pack('<HHH', 0, 2, 0))
-        self.management(1, struct.pack('<HHH', 1, 0, 0xc001))
-        bootp = bytearray(240)
-        bootp[:3] = bytes([2, 1, 6])
-        bootp[16:20] = bytes([192, 168, 43, 2])
-        bootp[28:34] = CLIENT
-        bootp[236:240] = bytes.fromhex('63825363')
-        payload = bytes(bootp) + bytes.fromhex('350102ff')
-        ip = struct.pack('!BBHHHBBH4s4s', 0x45, 0, 28 + len(payload), 0, 0, 64, 17, 0,
-                         bytes([192, 168, 43, 1]), BROADCAST[:4])
-        udp = struct.pack('!HHHH', 67, 68, 8 + len(payload), 0)
-        self.send_frame(0x208, GUEST_AP, CLIENT, GUEST_AP, services.LLC + ip + udp + payload)
-        self.frames()
+        discover = self.management(1, struct.pack('<HHH', 1, 0, 0xc001))
+        xid, _ = self.dhcp_request(discover, 1)
+        server, address = bytes([192, 168, 43, 1]), bytes([192, 168, 43, 2])
+        state = lambda: json.loads(self.get('softap-clients'))[0]['model_state']
+        assert state() == 6, 'Client must wait for an OFFER'
+
+        def reply(kind, transaction):
+            """Send a normal IPv4 DHCP server reply through guest Wi-Fi DMA."""
+            bootp = bytearray(240)
+            bootp[:3] = bytes([2, 1, 6])
+            bootp[4:8] = transaction
+            bootp[10:12] = bytes.fromhex('8000')
+            bootp[16:20] = address
+            bootp[28:34] = CLIENT
+            bootp[236:240] = bytes.fromhex('63825363')
+            options = bytes([53, 1, kind, 54, 4]) + server
+            options += bytes([51, 4]) + struct.pack('!I', 3600) + bytes([255])
+            payload = bootp + options
+            ip = struct.pack('!BBHHHBBH4s4s', 0x45, 0, 28 + len(payload),
+                             0, 0, 64, 17, 0, server, BROADCAST[:4])
+            checksum = sum(struct.unpack('!10H', ip))
+            checksum = (checksum & 0xffff) + (checksum >> 16)
+            checksum = (checksum & 0xffff) + (checksum >> 16)
+            ip = ip[:10] + struct.pack('!H', ~checksum & 0xffff) + ip[12:]
+            udp = struct.pack('!HHHH', 67, 68, 8 + len(payload), 0)
+            self.send_frame(0x208, GUEST_AP, CLIENT, GUEST_AP,
+                            services.LLC + ip + udp + payload)
+            return self.frames()
+
+        request_xid, options = self.dhcp_request(reply(2, xid), 3)
+        assert request_xid == xid and options[50] == address and options[54] == server
+        assert state() == 7, 'OFFER must wait for the selected server ACK'
+        reply(5, bytes([xid[0] ^ 1]) + xid[1:])
+        assert state() == 7, 'Unrelated ACK must not expose a usable lease'
+        reply(5, xid)
+        assert state() == 5, 'Selected server ACK must establish the lease'
 
     def send_frame(self, control, source, destination, bssid, payload):
         """Transmit a complete guest frame via its unmodified DMA interface."""
