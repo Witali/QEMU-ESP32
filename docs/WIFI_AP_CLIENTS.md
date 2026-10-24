@@ -86,3 +86,34 @@ Final-candidate C3 OLED default/modular boot checks each passed for 60 seconds
 reports are included in validation/wifi-bridge-20261024.json. All owned processes
 were stopped and reaped. Xtensa remains the unchanged baseline hash stated above;
 no new claim about the known CYD IDF6 PHY issue is made.
+
+
+## Bootstrap liveness with a stalled primary DHCP client
+
+A repeated DISCOVER loss on peer 0 reproduced another bridge bug: peer 1 was
+DHCP-bound and the native HTTP server was running, but the host HTTP request
+remained pending through more than ten guest seconds. The request succeeded
+only after permitting peer 0 to obtain a lease. The symmetric peer-1 stall
+already worked. This was a real failing liveness test, not an expected-failure
+success reclassified as recovery.
+
+The model had learned the AP server's address only in peer 1's ipaddr, while
+Ethernet/ARP demultiplexing consulted the primary slot. All clients belong to
+one guest AP interface. esp32_wifi_learn_guest_ip now shares a learned AP address
+across its peer slots, retaining separate offered_ipaddr leases and keeping STA
+learning independent. AP address changes also update all these observations.
+The corrected function carries FIXED_EMULATION; see CORRECTION_MARKERS.md.
+
+Final candidate SHA-256: `a5be14c545fd2dffec145473429686b9a667735a8fb6f0226c5c60034ac3785f`.
+Both stalled-peer cases now serve HTTP while the selected peer still has no
+lease; clearing losses then completes its actual DHCP recovery. Additional
+combined-loss runs each consumed all seven stage bits: probe/auth/assoc plus
+Discover/Request/Offer/ACK. Both peer positions recovered, with four DHCP retries
+and a healthy peer that served HTTP before the target completed DHCP.
+
+The factory two-peer/primary-departure regression and C3 default/modular 60-second
+boot/console/panic/input checks passed. Classic Xtensa is byte-identical to the
+prior baseline. Raw numeric summaries are in
+validation/softap-stalled-peer-20261024.json, with complete typed evidence in the
+stated yoRadio path. Long churn/soak and RF/WPA/full lifecycle acceptance remain
+open; the known earlier CYD IDF6 PHY issue is not closed by this checkpoint.

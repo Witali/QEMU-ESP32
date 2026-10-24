@@ -121,7 +121,11 @@ bool esp32_wifi_select_guest_interface(Esp32C3WifiState *s, const struct mac8021
     return esp32_wifi_client_online(s, s->wlan);
 }
 
-/* Learn an interface's source IPv4 address from its actual data/ARP packets. */
+/* Learn an interface's source IPv4 address from its actual data/ARP packets.
+ * FIXED_EMULATION: all virtual clients share one guest AP interface/address.
+ * Learning it through a secondary must also enable broadcast Ethernet/ARP
+ * demultiplexing before the primary client completes its own DHCP acquisition.
+ */
 void esp32_wifi_learn_guest_ip(Esp32C3WifiState *s, const struct mac80211_frame *frame)
 {
     const uint8_t *data = frame->data_and_fcs, *ip = NULL;
@@ -136,7 +140,16 @@ void esp32_wifi_learn_guest_ip(Esp32C3WifiState *s, const struct mac80211_frame 
                data[12] == 6 && data[13] == 4) {
         ip = data + 22;
     }
-    if (ip && ldl_be_p(ip) && ip[0] < 224) memcpy(s->wlan->ipaddr, ip, 4);
+    if (ip && ldl_be_p(ip) && ip[0] < 224) {
+        if (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP) {
+            /* Peer leases stay independent in offered_ipaddr, not ipaddr. */
+            for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
+                memcpy(esp32_wifi_softap_client(s, i)->ipaddr, ip, 4);
+            }
+        } else {
+            memcpy(s->wlan->ipaddr, ip, 4);
+        }
+    }
 }
 
 /* The shared Ethernet bridge uses one present, DHCP-bound AP peer.

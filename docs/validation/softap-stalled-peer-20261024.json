@@ -1,0 +1,1414 @@
+{
+  "passed": true,
+  "network_lifecycle_complete": false,
+  "rf_acceptance": false,
+  "cases": [
+    {
+      "name": "primary-probe",
+      "role": "before_failure",
+      "peer": 0,
+      "passed": false,
+      "qemu_sha256": "6d9d82665330a6f567d04eac9563ed05d2d14bdb47329d78e9f306fce3761a90",
+      "report_sha256": "b948ef9fc239faf6631a4ad7ad587c8736147a96d97ea3970c276a71cb85d4da",
+      "http_done_while_held": false,
+      "http_while_held": null,
+      "held_until": {
+        "phase": "hold",
+        "guest_seconds": 10.978431,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 6,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 1,
+            "dhcp_next_retry_us": 13883619,
+            "dhcp_nominal_seconds": 8,
+            "xid": "7bd89a03"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "fa6acfb0"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              5955619,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending_mask": 8
+      },
+      "recovered": {
+        "phase": "recovery",
+        "guest_seconds": 13.937783,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.3",
+            "dhcp_retries": 2,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "7bd89a03"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "fa6acfb0"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              5955619,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending_mask": 0
+      },
+      "owners_stopped": true
+    },
+    {
+      "name": "secondary-control",
+      "role": "before_symmetric_control",
+      "peer": 1,
+      "passed": true,
+      "qemu_sha256": "6d9d82665330a6f567d04eac9563ed05d2d14bdb47329d78e9f306fce3761a90",
+      "report_sha256": "2ec710a5ec379bdc5b0837da23a9594a7b2287542c421a0e6a979647704287f2",
+      "http_done_while_held": true,
+      "http_while_held": {
+        "status": 200,
+        "body_hex": "30"
+      },
+      "held_until": {
+        "phase": "hold",
+        "guest_seconds": 10.974338,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "17775c1e"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 6,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 1,
+            "dhcp_next_retry_us": 11491000,
+            "dhcp_nominal_seconds": 8,
+            "xid": "5c0001bb"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              4417000,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending_mask": 1024
+      },
+      "recovered": {
+        "phase": "recovery",
+        "guest_seconds": 11.593159,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "17775c1e"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.3",
+            "dhcp_retries": 2,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "5c0001bb"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              4417000,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending_mask": 0
+      },
+      "owners_stopped": true
+    },
+    {
+      "name": "peer-0-after",
+      "role": "after",
+      "peer": 0,
+      "passed": true,
+      "qemu_sha256": "a5be14c545fd2dffec145473429686b9a667735a8fb6f0226c5c60034ac3785f",
+      "report_sha256": "cfc62c960cbb67171f5a0c4e4b7ea232d0174b6c92ca35f82ea2b8bb1bec63e6",
+      "http_done_while_held": true,
+      "http_while_held": {
+        "status": 200,
+        "body_hex": "30"
+      },
+      "held_until": {
+        "phase": "hold",
+        "guest_seconds": 10.99643,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 6,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 1,
+            "dhcp_next_retry_us": 14821852,
+            "dhcp_nominal_seconds": 8,
+            "xid": "56a40431"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "6e5caaaa"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              5978852,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending_mask": 8
+      },
+      "recovered": {
+        "phase": "recovery",
+        "guest_seconds": 14.885019,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.3",
+            "dhcp_retries": 2,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "56a40431"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "6e5caaaa"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              5978852,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending_mask": 0
+      },
+      "owners_stopped": true
+    },
+    {
+      "name": "peer-1-after",
+      "role": "after",
+      "peer": 1,
+      "passed": true,
+      "qemu_sha256": "a5be14c545fd2dffec145473429686b9a667735a8fb6f0226c5c60034ac3785f",
+      "report_sha256": "e0444b2987d65bb00df5b4633b84592ba4e466f69200dad1acbb224baefb7608",
+      "http_done_while_held": true,
+      "http_while_held": {
+        "status": 200,
+        "body_hex": "30"
+      },
+      "held_until": {
+        "phase": "hold",
+        "guest_seconds": 10.978581,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "7a808700"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 6,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 1,
+            "dhcp_next_retry_us": 14125601,
+            "dhcp_nominal_seconds": 8,
+            "xid": "a154c489"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              5385601,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending_mask": 1024
+      },
+      "recovered": {
+        "phase": "recovery",
+        "guest_seconds": 14.234372,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "7a808700"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.3",
+            "dhcp_retries": 2,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "a154c489"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              5385601,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending_mask": 0
+      },
+      "owners_stopped": true
+    }
+  ],
+  "combined": [
+    {
+      "peer": 0,
+      "qemu_sha256": "a5be14c545fd2dffec145473429686b9a667735a8fb6f0226c5c60034ac3785f",
+      "report_sha256": "affe76540311460dc0282db6258ada6c4daf2412bb8d7747a07ddfcb4518e203",
+      "first": {
+        "guest_seconds": 4.217811,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 6,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 8387474,
+            "dhcp_nominal_seconds": 4,
+            "xid": "47ecebcb"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "10885f57"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              903404,
+              1944928,
+              2980961,
+              4053474,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending": 112
+      },
+      "final": {
+        "guest_seconds": 28.714125,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.3",
+            "dhcp_retries": 4,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "47ecebcb"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "10885f57"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "last_drop_us": [
+              903404,
+              1944928,
+              2980961,
+              4053474,
+              17225634,
+              8423815,
+              20547896
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending": 0
+      },
+      "http": {
+        "status": 200,
+        "body_hex": "30"
+      },
+      "owners_stopped": true
+    },
+    {
+      "peer": 1,
+      "qemu_sha256": "a5be14c545fd2dffec145473429686b9a667735a8fb6f0226c5c60034ac3785f",
+      "report_sha256": "b6c3d75d496b14c401ca0ac9b86d2f7eeaafcd6dc55529913da870f61db443c9",
+      "first": {
+        "guest_seconds": 4.236731,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "bf9c45da"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 6,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 7984299,
+            "dhcp_nominal_seconds": 4,
+            "xid": "3009882e"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              905421,
+              1947553,
+              2980465,
+              4046299,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending": 14336
+      },
+      "final": {
+        "guest_seconds": 26.928615,
+        "clients": [
+          {
+            "index": 0,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:02",
+            "offered_ipv4": "192.168.43.2",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "bf9c45da"
+          },
+          {
+            "index": 1,
+            "online": true,
+            "model_state": 5,
+            "mac": "52:54:00:43:00:03",
+            "offered_ipv4": "192.168.43.3",
+            "dhcp_retries": 4,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "3009882e"
+          },
+          {
+            "index": 2,
+            "online": false,
+            "model_state": 0,
+            "mac": "52:54:00:43:00:04",
+            "offered_ipv4": "0.0.0.0",
+            "dhcp_retries": 0,
+            "dhcp_next_retry_us": 0,
+            "dhcp_nominal_seconds": 0,
+            "xid": "00000000"
+          }
+        ],
+        "faults": [
+          {
+            "index": 0,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "index": 1,
+            "dropped": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "last_drop_us": [
+              905421,
+              1947553,
+              2980465,
+              4046299,
+              15152748,
+              8039357,
+              18360908
+            ]
+          },
+          {
+            "index": 2,
+            "dropped": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "last_drop_us": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "pending": 0
+      },
+      "http": {
+        "status": 200,
+        "body_hex": "30"
+      },
+      "owners_stopped": true
+    }
+  ],
+  "c3_boot": {
+    "default": {
+      "passed": true,
+      "checks": {
+        "running": true,
+        "console_has_content": true,
+        "display_dimensions": true,
+        "no_panic_or_watchdog": true,
+        "source_flash_unchanged": true,
+        "source_artifacts_unchanged": true
+      },
+      "hardware_profile": null,
+      "machine": "esp32c3",
+      "duration_seconds": 60,
+      "qemu_sha256": "a5be14c545fd2dffec145473429686b9a667735a8fb6f0226c5c60034ac3785f",
+      "firmware_sources": {
+        "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+      },
+      "pixel_sha256": "a72419eb54c6a907d7ee177b3d1ea944884813b58a53334bf7a1b8b6a5cfb070",
+      "nonzero_bytes": 43680,
+      "lcd_area_nonzero_bytes": 43680,
+      "cyd_boot_scope": null
+    },
+    "modular": {
+      "passed": true,
+      "checks": {
+        "running": true,
+        "console_has_content": true,
+        "display_dimensions": true,
+        "no_panic_or_watchdog": true,
+        "source_flash_unchanged": true,
+        "source_artifacts_unchanged": true
+      },
+      "hardware_profile": {
+        "schema": 1,
+        "name": "c3-oled",
+        "soc": "esp32c3",
+        "machine": "esp32c3,default-peripherals=off",
+        "arguments": [
+          "-device",
+          "{\"driver\":\"esp-i2c-module\",\"id\":\"oled\",\"bus\":\"/i2c0/i2c\",\"gpio\":\"/machine/gpio\",\"address\":60,\"model\":\"ssd1306\",\"scl\":6,\"sda\":5,\"properties\":\"{\\\"visible-width\\\":72,\\\"visible-height\\\":40,\\\"column-offset\\\":28,\\\"magnify\\\":4}\"}"
+        ],
+        "sd_images": [],
+        "profile": "C:\\Work\\QEMU-ESP32\\.worktree\\small-tv-ap-clients\\configs\\boards\\c3-oled.json",
+        "network": {
+          "station_ssid": "yoRadio-QEMU",
+          "urls": [],
+          "ntp_hosts": []
+        },
+        "network_arguments": [],
+        "service_urls": []
+      },
+      "machine": "esp32c3",
+      "duration_seconds": 60,
+      "qemu_sha256": "a5be14c545fd2dffec145473429686b9a667735a8fb6f0226c5c60034ac3785f",
+      "firmware_sources": {
+        "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+      },
+      "pixel_sha256": "f012d8284e7129d54075e1661d2cb972bb54b2ad5f98acb6e5b484b893fe9913",
+      "nonzero_bytes": 42864,
+      "lcd_area_nonzero_bytes": 42864,
+      "cyd_boot_scope": null
+    }
+  },
+  "factory": {
+    "passed": true,
+    "qemu_sha256": "a5be14c545fd2dffec145473429686b9a667735a8fb6f0226c5c60034ac3785f",
+    "owners_stopped": true,
+    "server_handles": [
+      1070409944,
+      0,
+      0
+    ]
+  },
+  "evidence_repository": "Witali/yoRadio",
+  "evidence_path": "Small_TV/qemu/parity/network-stalled-peer-validation-20261024.json"
+}
