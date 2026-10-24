@@ -16,7 +16,7 @@ enum Esp32WifiDhcpPhase {
 };
 
 typedef struct Esp32WifiDhcpLease {
-    uint8_t phase, address[4], server[4];
+    uint8_t phase, address[4], server[4], xid[4];
 } Esp32WifiDhcpLease;
 
 enum Esp32WifiDhcpAction {
@@ -26,7 +26,8 @@ enum Esp32WifiDhcpAction {
     ESP32_DHCP_RESTART,
 };
 
-extern const uint8_t esp32_wifi_dhcp_xid[4];
+void esp32_wifi_dhcp_begin(Esp32WifiDhcpLease *lease, const uint8_t xid[4]);
+uint32_t esp32_wifi_dhcp_backoff_ms(uint32_t *nominal_seconds, uint32_t jitter_ms);
 bool esp32_wifi_dhcp_reply(const uint8_t *llc, size_t size,
                           Esp32WifiDhcpReply *reply);
 enum Esp32WifiDhcpAction esp32_wifi_dhcp_accept(Esp32WifiDhcpLease *lease,

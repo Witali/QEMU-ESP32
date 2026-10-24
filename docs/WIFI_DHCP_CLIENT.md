@@ -47,3 +47,9 @@ These are bounded boot checks, not complete application/network acceptance.
 Xtensa executable remains byte-identical to the pre-peer baseline:
 `821d98070aa131ccdc5c7ccd87336c90c13a7c205dfe991404ed242f9da0f0e1`.
 Known earlier CYD IDF6 PHY acceptance limitations are not closed by that fact.
+
+
+Acquisition retransmission and per-peer random XIDs were subsequently qualified
+with controlled packet loss. See [WIFI_PACKET_LOSS.md](WIFI_PACKET_LOSS.md).
+The earlier report remains an exact historical baseline; its fixed-XID code is
+not presented as the later implementation. Lease renewal/rebinding remain open.

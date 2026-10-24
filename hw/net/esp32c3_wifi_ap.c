@@ -235,6 +235,9 @@ void Esp32_WLAN_set_softap_clients(Esp32C3WifiState *s, uint32_t mask)
             peer->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
             memset(peer->offered_ipaddr, 0, sizeof(peer->offered_ipaddr));
             memset(&peer->dhcp, 0, sizeof(peer->dhcp));
+            peer->dhcp_retry_ns = 0;
+            peer->dhcp_retry_seconds = 0;
+            peer->dhcp_retries = 0;
             if (s->softap_host_peer == i + 1) s->softap_host_peer = 0;
         }
     }
@@ -861,6 +864,44 @@ static void send_single_frame(Esp32C3WifiState *s, struct mac80211_frame *frame,
     Esp32_WLAN_insert_frame(s, reply);
 }
 
+/* Arm an acquisition deadline with uniform millisecond jitter. Rejection
+ * sampling avoids modulo bias; no packet contents or live text are retained.
+ */
+static void arm_dhcp_retry(Esp32C3WifiState *s, bool reset)
+{
+    uint32_t sample, limit = UINT32_MAX - UINT32_MAX % 2001u;
+    do {
+        qemu_guest_getrandom_nofail(&sample, sizeof(sample));
+    } while (sample >= limit);
+    if (reset) s->wlan->dhcp_retry_seconds = 0;
+    uint32_t delay = esp32_wifi_dhcp_backoff_ms(&s->wlan->dhcp_retry_seconds, sample % 2001u);
+    s->wlan->dhcp_retry_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + (int64_t)delay * SCALE_MS;
+}
+
+/* Start a real acquisition with a fresh transaction ID, also distinct from
+ * all virtual peer IDs in this device. The wire constructor and parser share
+ * that per-peer identity; a retry must keep it until ACK/NAK or reassociation.
+ */
+static struct mac80211_frame *begin_softap_dhcp(Esp32C3WifiState *s)
+{
+    uint8_t xid[4];
+    bool distinct;
+    do {
+        qemu_guest_getrandom_nofail(xid, sizeof(xid));
+        distinct = true;
+        for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
+            Esp32C3WifiInterface *peer = esp32_wifi_softap_client(s, i);
+            if (!memcmp(xid, peer->dhcp.xid, 4)) distinct = false;
+        }
+    } while (!distinct);
+    esp32_wifi_dhcp_begin(&s->wlan->dhcp, xid);
+    memset(s->wlan->offered_ipaddr, 0, sizeof(s->wlan->offered_ipaddr));
+    s->wlan->dhcp_retries = 0;
+    s->wlan->ap_state = Esp32_WLAN__STATE_STA_DHCP;
+    arm_dhcp_retry(s, true);
+    return Esp32_WLAN_create_dhcp_discover(s);
+}
+
 /* A guest AP beacon starts each present client with its own immutable MAC. */
 static bool start_softap_clients(Esp32C3WifiState *s, struct mac80211_frame *frame)
 {
@@ -877,7 +918,10 @@ static bool start_softap_clients(Esp32C3WifiState *s, struct mac80211_frame *fra
         if (!esp32_wifi_client_online(s, peer)) continue;
         bool begin = peer->ap_state == Esp32_WLAN__STATE_NOT_AUTHENTICATED ||
                      peer->ap_state == Esp32_WLAN__STATE_AUTHENTICATED;
-        if (begin || qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) >= peer->management_retry_ns) {
+        bool managing = peer->ap_state == Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED ||
+                        peer->ap_state == Esp32_WLAN__STATE_STA_AUTHENTICATED ||
+                        peer->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATING;
+        if (begin || (managing && qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) >= peer->management_retry_ns)) {
             access_point_info info = { .ssid = peer->ssid,
                 .channel = esp32c3_wifi_channel(s), .sigstrength = -23 };
             memcpy(info.mac_address, peer->ap_macaddr, 6);
@@ -894,6 +938,18 @@ static bool start_softap_clients(Esp32C3WifiState *s, struct mac80211_frame *fra
                 peer->management_retry_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + MANAGEMENT_RETRY_NS;
                 send_single_frame(s, frame, request);
             }
+        }
+        if ((peer->ap_state == Esp32_WLAN__STATE_STA_DHCP ||
+             peer->ap_state == Esp32_WLAN__STATE_STA_DHCP_REQUESTING) &&
+            qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) >= peer->dhcp_retry_ns) {
+            struct mac80211_frame *request = peer->ap_state == Esp32_WLAN__STATE_STA_DHCP ?
+                Esp32_WLAN_create_dhcp_discover(s) : Esp32_WLAN_create_dhcp_request(s, peer->dhcp.address);
+            memcpy(request->bssid_address, BROADCAST, 6);
+            memcpy(request->source_address, peer->ap_macaddr, 6);
+            memcpy(request->destination_address, peer->softap_macaddr, 6);
+            peer->dhcp_retries++;
+            arm_dhcp_retry(s, false);
+            send_single_frame(s, NULL, request);
         }
     }
     esp32c3_wifi_set_packet_status(s, ESP32C3_RADIO_PHYA_ACK);
@@ -1061,9 +1117,7 @@ static void handle_interface_frame(Esp32C3WifiState *s, struct mac80211_frame *f
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_ASSOCIATION_RESP:
                 if(DEBUG) printf("assoc resp\n");
-                memset(&s->wlan->dhcp, 0, sizeof(s->wlan->dhcp));
-                memset(s->wlan->offered_ipaddr, 0, sizeof(s->wlan->offered_ipaddr));
-                mac80211_frame *frame1=Esp32_WLAN_create_dhcp_discover(s);
+                mac80211_frame *frame1 = begin_softap_dhcp(s);
                 memcpy(frame1->bssid_address,BROADCAST,6);
                 memcpy(frame1->source_address,frame->destination_address,6);
                 memcpy(frame1->destination_address,frame->source_address,6);
@@ -1142,15 +1196,16 @@ static void handle_interface_frame(Esp32C3WifiState *s, struct mac80211_frame *f
                     memcpy(s->wlan->offered_ipaddr, s->wlan->dhcp.address, 4);
                     request = Esp32_WLAN_create_dhcp_request(s, s->wlan->dhcp.address);
                     s->wlan->ap_state = Esp32_WLAN__STATE_STA_DHCP_REQUESTING;
+                    arm_dhcp_retry(s, true);
                     break;
                 case ESP32_DHCP_LEASE_BOUND:
                     memcpy(s->wlan->associated_ap_macaddr, s->wlan->macaddr, 6);
                     s->wlan->ap_state = Esp32_WLAN__STATE_STA_ASSOCIATED;
+                    s->wlan->dhcp_retry_ns = 0;
+                    s->wlan->dhcp_retry_seconds = 0;
                     break;
                 case ESP32_DHCP_RESTART:
-                    memset(s->wlan->offered_ipaddr, 0, sizeof(s->wlan->offered_ipaddr));
-                    request = Esp32_WLAN_create_dhcp_discover(s);
-                    s->wlan->ap_state = Esp32_WLAN__STATE_STA_DHCP;
+                    request = begin_softap_dhcp(s);
                     break;
                 case ESP32_DHCP_IGNORE:
                     break;

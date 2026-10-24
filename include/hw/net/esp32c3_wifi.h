@@ -29,6 +29,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(Esp32C3WifiState, ESP32C3_WIFI)
 #define ESP32C3_WIFI_MMIO_SIZE 0x2000
 #define ESP32C3_WIFI_TX_SLOT_COUNT 5
 #define ESP32_WIFI_SOFTAP_CLIENTS 3
+#define ESP32_WIFI_FAULT_STAGES 7
 
 /* RX DMA and filter registers. */
 #define ESP32C3_WIFI_RX_CTRL          0x084
@@ -73,6 +74,9 @@ typedef struct Esp32C3WifiInterface {
     uint8_t offered_ipaddr[4];
     Esp32WifiDhcpLease dhcp;
     int64_t management_retry_ns;
+    int64_t dhcp_retry_ns;
+    uint32_t dhcp_retry_seconds;
+    uint32_t dhcp_retries;
     uint8_t macaddr[6];
     uint8_t ap_macaddr[6];
     uint8_t associated_ap_macaddr[6];
@@ -119,8 +123,8 @@ struct Esp32C3WifiState {
     Esp32C3WifiInterface softap_extra[ESP32_WIFI_SOFTAP_CLIENTS - 1];
     uint32_t softap_client_mask;
     uint32_t softap_drop_mask;
-    uint64_t softap_dropped[ESP32_WIFI_SOFTAP_CLIENTS][7];
-    int64_t softap_drop_last_ns[ESP32_WIFI_SOFTAP_CLIENTS][7];
+    uint64_t softap_dropped[ESP32_WIFI_SOFTAP_CLIENTS][ESP32_WIFI_FAULT_STAGES];
+    int64_t softap_drop_last_ns[ESP32_WIFI_SOFTAP_CLIENTS][ESP32_WIFI_FAULT_STAGES];
     uint8_t softap_host_peer;
     uint8_t softap_host_ip[4];
     Esp32C3WifiInterface *wlan;

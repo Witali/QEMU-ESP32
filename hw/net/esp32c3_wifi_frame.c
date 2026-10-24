@@ -146,10 +146,10 @@ static mac80211_frame *Esp32_WLAN_create_dhcp_frame(Esp32C3WifiState *s, int cmd
     dhcp_request_t req={
         {.version_size=0x45,.ttl=0xff,.protocol=0x11,.dest_ip={0xff,0xff,0xff,0xff}},
         {.src_port_l=0x44,.dest_port_l=0x43},
-        {.htype=1,.hlen=6,.xid=0x1d3d00,.chaddr={0,0,0,0,0,0},
+        {.opcode=1,.htype=1,.hlen=6,.chaddr={0,0,0,0,0,0},
         .magic_cookie=0x63538263}
     };
-    if (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP) {
+    if (s->wlan->mode == Esp32_Mode_SoftAP) {
         /* The virtual client, rather than the guest AP, owns this DHCP request. */
         req.dhcp.opcode = 1;
         memcpy(req.dhcp.chaddr, s->wlan->ap_macaddr, 6);
@@ -157,7 +157,7 @@ static mac80211_frame *Esp32_WLAN_create_dhcp_frame(Esp32C3WifiState *s, int cmd
         memcpy(req.dhcp.chaddr, s->wlan->macaddr, 6);
     }
     /* Wire order is independent of the host's integer representation. */
-    memcpy(&req.dhcp.xid, esp32_wifi_dhcp_xid, 4);
+    memcpy(&req.dhcp.xid, s->wlan->dhcp.xid, 4);
     int len=sizeof(req)+cmd_size;
     req.ipheader.len_h=len>>8;
     req.ipheader.len_l=len&0xff;
@@ -182,7 +182,7 @@ mac80211_frame *Esp32_WLAN_create_dhcp_request(Esp32C3WifiState *s, uint8_t *ip)
         0x37, 0x04, 0x01, 0x03, 0x1c, 0x06,
         0xff, 0, 0
     };
-    if (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP) {
+    if (s->wlan->mode == Esp32_Mode_SoftAP) {
         memcpy(dhcp_commands + 16, s->wlan->ap_macaddr, 6);
     }
     return Esp32_WLAN_create_dhcp_frame(s, sizeof(dhcp_commands),dhcp_commands);
@@ -197,7 +197,7 @@ mac80211_frame *Esp32_WLAN_create_dhcp_discover(Esp32C3WifiState *s) {
         0x37 ,0x04 ,0x01 ,0x03 ,0x1c ,0x06 ,
         0xff, 0,0
     };
-    if (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP) {
+    if (s->wlan->mode == Esp32_Mode_SoftAP) {
         memcpy(dhcp_commands + 21, s->wlan->ap_macaddr, 6);
     }
     return Esp32_WLAN_create_dhcp_frame(s,sizeof(dhcp_commands),dhcp_commands);

@@ -511,11 +511,15 @@ static char *wifi_get_softap_clients(Object *obj, Error **errp)
     for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
         Esp32C3WifiInterface *peer = esp32_wifi_softap_client(s, i);
         g_string_append_printf(json, "%s{\"index\":%u,\"online\":%s,\"model_state\":%u,"
-            "\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"offered_ipv4\":\"%u.%u.%u.%u\"}",
+            "\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"offered_ipv4\":\"%u.%u.%u.%u\","
+            "\"dhcp_retries\":%u,\"dhcp_next_retry_us\":%" PRId64 ",\"dhcp_nominal_seconds\":%u,"
+            "\"xid\":\"%02x%02x%02x%02x\"}",
             i ? "," : "", i, s->softap_client_mask & (1u << i) ? "true" : "false", peer->ap_state,
             peer->ap_macaddr[0], peer->ap_macaddr[1], peer->ap_macaddr[2],
             peer->ap_macaddr[3], peer->ap_macaddr[4], peer->ap_macaddr[5],
-            peer->offered_ipaddr[0], peer->offered_ipaddr[1], peer->offered_ipaddr[2], peer->offered_ipaddr[3]);
+            peer->offered_ipaddr[0], peer->offered_ipaddr[1], peer->offered_ipaddr[2], peer->offered_ipaddr[3],
+            peer->dhcp_retries, peer->dhcp_retry_ns / 1000, peer->dhcp_retry_seconds,
+            peer->dhcp.xid[0], peer->dhcp.xid[1], peer->dhcp.xid[2], peer->dhcp.xid[3]);
     }
     g_string_append_c(json, ']');
     return g_string_free(json, false);

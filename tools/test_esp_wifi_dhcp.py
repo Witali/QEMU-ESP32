@@ -17,7 +17,7 @@ class Reply(C.Structure):
 
 
 class Lease(C.Structure):
-    _fields_ = [('phase', C.c_uint8), ('address', C.c_uint8 * 4), ('server', C.c_uint8 * 4)]
+    _fields_ = [('phase', C.c_uint8), ('address', C.c_uint8 * 4), ('server', C.c_uint8 * 4), ('xid', C.c_uint8 * 4)]
 
 
 MAC = bytes.fromhex('525400430002')
@@ -75,6 +75,10 @@ def main():
     parse.argtypes = [C.c_void_p, C.c_size_t, C.POINTER(Reply)]; parse.restype = C.c_bool
     accept = lib.esp32_wifi_dhcp_accept
     accept.argtypes = [C.POINTER(Lease), C.POINTER(Reply), C.c_void_p]; accept.restype = C.c_int
+    begin = lib.esp32_wifi_dhcp_begin
+    begin.argtypes = [C.POINTER(Lease), C.c_void_p]; begin.restype = None
+    backoff = lib.esp32_wifi_dhcp_backoff_ms
+    backoff.argtypes = [C.POINTER(C.c_uint32), C.c_uint32]; backoff.restype = C.c_uint32
     rows = []
 
     def decode(data, valid):
@@ -133,7 +137,7 @@ def main():
         return result
 
     # An ACK cannot establish a lease without selecting an offer first.
-    lease = Lease(); step(lease, packet(5), 0)
+    lease = Lease(); begin(C.byref(lease), XID); step(lease, packet(5), 0)
     step(lease, packet(mac=bytes.fromhex('525400430003')), 0)
     step(lease, packet(xid=b'bad!'), 0)
     step(lease, packet(server=b'\0'*4), 0)
@@ -147,12 +151,31 @@ def main():
     step(lease, packet(5, mac=bytes.fromhex('525400430003')), 0)
     step(lease, packet(5), 2); assert lease.phase == 2
     step(lease, packet(5), 0)
-    lease = Lease(); step(lease, packet(), 1)
+    lease = Lease(); begin(C.byref(lease), XID); step(lease, packet(), 1)
     step(lease, packet(6, server=bytes([192,168,4,9])), 0)
     step(lease, packet(6, address=b'\0'*4), 3)
     assert bytes(lease) == b'\0'*C.sizeof(lease)
+    begin(C.byref(lease), XID)
     step(lease, packet(), 1); step(lease, packet(5), 2)
     rows.append(dict(case='transaction-and-state-sequence', passed=True))
+    # Different acquisitions must not accept a late packet with the old XID.
+    other = Lease(); new_id = b'next'; begin(C.byref(other), new_id)
+    step(other, packet(), 0); step(other, packet(xid=new_id), 1)
+    step(other, packet(5, xid=XID), 0); step(other, packet(5, xid=new_id), 2)
+    begin(C.byref(other), C.addressof(other)+Lease.xid.offset)
+    assert other.phase == 0 and bytes(other.xid) == new_id
+    assert not any(other.address) and not any(other.server)
+    rows.append(dict(case='fresh-xid-and-alias-safe-begin', passed=True))
+    jitter_checks = 0
+    for previous, nominal in ((0,4),(4,8),(8,16),(16,32),(32,64),(64,64),(0xffffffff,64)):
+        for jitter in range(2001):
+            value = C.c_uint32(previous)
+            delay = backoff(C.byref(value), jitter)
+            assert value.value == nominal
+            assert delay == min(64000, nominal*1000+jitter-1000)
+            jitter_checks += 1
+    rows.append(dict(case='exponential-backoff-and-jitter', combinations=jitter_checks, passed=True))
+
 
     # Put every truncated packet immediately before a no-access page. An
     # accidental one-byte read past the supplied length fails the process.

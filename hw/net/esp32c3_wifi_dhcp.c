@@ -3,8 +3,29 @@
  */
 #include "esp32c3_wifi_dhcp.h"
 #include <string.h>
+#include <assert.h>
 
-const uint8_t esp32_wifi_dhcp_xid[4] = { 0, 0x3d, 0x1d, 0 };
+/* A new acquisition has a new caller-owned transaction; retries retain it. */
+void esp32_wifi_dhcp_begin(Esp32WifiDhcpLease *lease, const uint8_t xid[4])
+{
+    uint8_t id[4];
+    memcpy(id, xid, 4);
+    memset(lease, 0, sizeof(*lease));
+    memcpy(lease->xid, id, 4);
+}
+
+/* RFC 2131 4.1: randomized exponential retry, 4/8/16/32/64 seconds.
+ * The caller supplies uniform jitter in 0..2000 ms. The actual wait is capped
+ * at 64 s, and never implemented as a guest delay or host busy wait.
+ */
+uint32_t esp32_wifi_dhcp_backoff_ms(uint32_t *nominal_seconds, uint32_t jitter_ms)
+{
+    assert(jitter_ms <= 2000);
+    uint32_t previous = *nominal_seconds;
+    *nominal_seconds = previous < 4 ? 4 : previous >= 32 ? 64 : previous * 2;
+    uint32_t delay = *nominal_seconds * 1000 + jitter_ms - 1000;
+    return delay > 64000 ? 64000 : delay;
+}
 
 /* Read unaligned network fields without host-endian structure casts. */
 static unsigned read_be16(const uint8_t *p)
@@ -124,7 +145,7 @@ enum Esp32WifiDhcpAction esp32_wifi_dhcp_accept(Esp32WifiDhcpLease *lease,
     const Esp32WifiDhcpReply *reply, const uint8_t mac[6])
 {
     static const uint8_t zero[4];
-    if (memcmp(reply->mac, mac, 6) || memcmp(reply->xid, esp32_wifi_dhcp_xid, 4) ||
+    if (memcmp(reply->mac, mac, 6) || memcmp(reply->xid, lease->xid, 4) ||
         !memcmp(reply->server, zero, 4)) {
         return ESP32_DHCP_IGNORE;
     }
