@@ -12,6 +12,7 @@ __maintainer__ = "Stefan Hajnoczi"
 __email__      = "stefanha@redhat.com"
 
 
+import os
 import re
 import sys
 import weakref
@@ -36,7 +37,7 @@ out_fobj = sys.stdout
 
 def out_open(filename):
     global out_filename, out_fobj
-    out_filename = filename
+    out_filename = filename.replace(os.sep, '/')
     out_fobj = open(filename, 'wt')
 
 def out(*lines, **kwargs):
