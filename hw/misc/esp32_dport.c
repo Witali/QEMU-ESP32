@@ -59,6 +59,7 @@ static inline void set_mmu_entry(Esp32CacheRegionState* crs, hwaddr base, hwaddr
 
 static uint64_t esp32_dport_read(void *opaque, hwaddr addr, unsigned int size)
 {
+    /* FIXED_EMULATION: IDF PHY checks the modem clock latch after enabling it. */
     Esp32DportState *s = ESP32_DPORT(opaque);
     uint64_t r = 0;
     switch (addr) {
@@ -76,6 +77,12 @@ static uint64_t esp32_dport_read(void *opaque, hwaddr addr, unsigned int size)
         break;
     case A_DPORT_CPU_PER_CONF:
         r = s->cpuperiod_sel;
+        break;
+    case A_DPORT_WIFI_CLK_EN:
+        r = s->wifi_clk_en_reg;
+        break;
+    case A_DPORT_WIFI_RST_EN:
+        r = s->wifi_rst_en_reg;
         break;
     case A_DPORT_PRO_CACHE_CTRL:
         r = s->cache_state[0].cache_ctrl_reg;
@@ -130,6 +137,7 @@ static uint64_t esp32_dport_read(void *opaque, hwaddr addr, unsigned int size)
 static void esp32_dport_write(void *opaque, hwaddr addr,
                               uint64_t value, unsigned int size)
 {
+    /* Apply DPORT control writes and propagate CPU/cache side effects. */
     Esp32DportState *s = ESP32_DPORT(opaque);
     bool old_state;
     uint32_t old_val;
@@ -155,6 +163,14 @@ static void esp32_dport_write(void *opaque, hwaddr addr,
     case A_DPORT_CPU_PER_CONF:
         s->cpuperiod_sel = value & R_DPORT_CPU_PER_CONF_CPUPERIOD_SEL_MASK;
         qemu_irq_pulse(s->clk_update_req);
+        break;
+    case A_DPORT_WIFI_CLK_EN:
+        /* FIXED_EMULATION: the PHY clock RMW sequence must survive readback. */
+        s->wifi_clk_en_reg = value;
+        break;
+    case A_DPORT_WIFI_RST_EN:
+        /* Reset bits are not self-clearing; software explicitly releases them. */
+        s->wifi_rst_en_reg = value;
         break;
     case A_DPORT_PRO_CACHE_CTRL:
         if (FIELD_EX32(value, DPORT_PRO_CACHE_CTRL, CACHE_FLUSH_ENA)) {
@@ -366,6 +382,7 @@ static const MemoryRegionOps esp32_cache_ill_trap_ops = {
 
 static void esp32_dport_reset_hold(Object *obj, ResetType type)
 {
+    /* Restore CPU/cache and modem clock/reset controls to power-on values. */
     Esp32DportState *s = ESP32_DPORT(obj);
 
     s->appcpu_boot_addr = 0;
@@ -373,6 +390,8 @@ static void esp32_dport_reset_hold(Object *obj, ResetType type)
     s->appcpu_reset_state = true;
     s->appcpu_stall_state = false;
     s->cache_ill_trap_en_reg = 0;
+    s->wifi_clk_en_reg = ESP32_WIFI_CLK_EN_RESET;
+    s->wifi_rst_en_reg = 0;
     esp32_cache_reset(&s->cache_state[0]);
     esp32_cache_reset(&s->cache_state[1]);
     qemu_irq_lower(s->appcpu_stall_req);

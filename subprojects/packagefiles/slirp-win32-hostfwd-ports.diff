@@ -1,0 +1,470 @@
+diff --git a/src/slirp.h b/src/slirp.h
+--- a/src/slirp.h
++++ b/src/slirp.h
+@@ -191,6 +191,11 @@
+     tcp_seq tcp_iss; /* tcp initial send seq # */
+     uint32_t tcp_now; /* for RFC 1323 timestamps */
+ 
++    /* Guest-facing host-forward ports outlive the host socket's fast reuse. */
++    GHashTable *hostfwd_port_leases;
++    GQueue hostfwd_retired_ports;
++    uint16_t hostfwd_next_alias;
++
+     /* udp states */
+     struct socket udb;
+     struct socket *udp_last_so;
+diff --git a/src/socket.h b/src/socket.h
+--- a/src/socket.h
++++ b/src/socket.h
+@@ -55,6 +55,7 @@
+     struct tcpiphdr *so_ti; /* Pointer to the original ti within
+                              * so_mconn, for non-blocking connections */
+     uint32_t so_urgc;
++    uint16_t hostfwd_guest_port; /* leased incoming TCP peer port, or zero */
+     union slirp_sockaddr fhost; /* Foreign host */
+ #define so_faddr fhost.sin.sin_addr
+ #define so_fport fhost.sin.sin_port
+diff --git a/src/socket.c b/src/socket.c
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include "slirp.h"
++#include "hostfwd_port.h"
+ #include "ip_icmp.h"
+ #ifdef __sun__
+ #include <sys/filio.h>
+@@ -84,6 +85,7 @@
+ {
+     Slirp *slirp = so->slirp;
+ 
++    slirp_hostfwd_port_release(so);
+     if (have_valid_socket(so->s_aux)) {
+         closesocket(so->s_aux);
+     }
+diff --git a/src/tcp_subr.c b/src/tcp_subr.c
+--- a/src/tcp_subr.c
++++ b/src/tcp_subr.c
+@@ -37,6 +37,7 @@
+  */
+ 
+ #include "slirp.h"
++#include "hostfwd_port.h"
+ 
+ /* patchable/settable parameters for tcp */
+ /* Don't do rfc1323 performance enhancements */
+@@ -536,6 +537,12 @@
+ 
+     so->fhost.ss = addr;
+     sotranslate_accept(so);
++    /* FIXED_EMULATION: host and guest TCP quiet periods are independent.
++     * Reserve the translated peer tuple before constructing its first SYN. */
++    if ((inso->so_state & SS_HOSTFWD) && !slirp_hostfwd_port_acquire(so)) {
++        tcp_close(sototcpcb(so));
++        return;
++    }
+ 
+     /* Close the accept() socket, set right state */
+     if (inso->so_state & SS_FACCEPTONCE) {
+diff --git a/src/slirp.c b/src/slirp.c
+--- a/src/slirp.c
++++ b/src/slirp.c
+@@ -23,6 +23,7 @@
+  * THE SOFTWARE.
+  */
+ #include "slirp.h"
++#include "hostfwd_port.h"
+ 
+ #ifndef g_warning_once
+ #define g_warning_once g_warning
+@@ -769,6 +770,7 @@
+     }
+ 
+     ip_cleanup(slirp);
++    slirp_hostfwd_ports_cleanup(slirp);
+     ip6_cleanup(slirp);
+     m_cleanup(slirp);
+     tftp_cleanup(slirp);
+diff --git a/src/state.c b/src/state.c
+--- a/src/state.c
++++ b/src/state.c
+@@ -25,6 +25,7 @@
+ #include "slirp.h"
+ #include "vmstate.h"
+ #include "stream.h"
++#include "hostfwd_port.h"
+ 
+ static int slirp_tcp_post_load(void *opaque, int version)
+ {
+@@ -329,9 +330,8 @@
+         }
+     slirp_ostream_write_u8(&f, 0);
+ 
+-    slirp_vmstate_save_state(&f, &vmstate_slirp, slirp);
+-
+-    return 0;
++    int ret = slirp_vmstate_save_state(&f, &vmstate_slirp, slirp);
++    return ret < 0 ? ret : slirp_hostfwd_ports_save(slirp, write_cb, opaque);
+ }
+ 
+ 
+@@ -344,12 +344,15 @@
+         .opaque = opaque,
+     };
+ 
++    if (version_id < 0 || version_id > 5) {
++        return -EINVAL;
++    }
+     while (slirp_istream_read_u8(&f)) {
+         int ret;
+         struct socket *so = socreate(slirp, -1);
+ 
+         ret =
+-            slirp_vmstate_load_state(&f, &vmstate_slirp_socket, so, version_id);
++            slirp_vmstate_load_state(&f, &vmstate_slirp_socket, so, MIN(version_id, 4));
+         if (ret < 0) {
+             return ret;
+         }
+@@ -372,10 +375,12 @@
+         so->guestfwd = ex_ptr;
+     }
+ 
+-    return slirp_vmstate_load_state(&f, &vmstate_slirp, slirp, version_id);
++    int ret = slirp_vmstate_load_state(&f, &vmstate_slirp, slirp, MIN(version_id, 4));
++    return ret < 0 || version_id < 5 ? ret :
++        slirp_hostfwd_ports_load(slirp, read_cb, opaque);
+ }
+ 
+ int slirp_state_version(void)
+ {
+-    return 4;
+-}
++    return 5;
++}
+diff --git a/src/libslirp.h b/src/libslirp.h
+--- a/src/libslirp.h
++++ b/src/libslirp.h
+@@ -1,6 +1,9 @@
+ /* SPDX-License-Identifier: BSD-3-Clause */
+ #ifndef LIBSLIRP_H
+ #define LIBSLIRP_H
++
++/* Local extension: state v5 preserves host-forward peer-port quiet periods. */
++#define SLIRP_HOSTFWD_PORT_LEASES 1
+ 
+ #include <stdint.h>
+ #include <stdbool.h>
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -152,6 +152,7 @@
+   'src/sbuf.c',
+   'src/slirp.c',
+   'src/socket.c',
++  'src/hostfwd_port.c',
+   'src/state.c',
+   'src/stream.c',
+   'src/tcp_input.c',
+diff --git a/src/hostfwd_port.c b/src/hostfwd_port.c
+new file mode 100644
+--- /dev/null
++++ b/src/hostfwd_port.c
+@@ -0,0 +1,273 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++#include "slirp.h"
++#include "hostfwd_port.h"
++#include "stream.h"
++
++typedef struct HostfwdPortLease {
++    uint16_t port;
++    bool active;
++    uint64_t reuse_after_ms;
++} HostfwdPortLease;
++
++/* Read the same virtual clock that drives the proxy's guest TCP timers. */
++static uint64_t hostfwd_now_ms(Slirp *slirp)
++{
++    int64_t ns = slirp->cb->clock_get_ns(slirp->opaque);
++    return ns > 0 ? (uint64_t)ns / 1000000 : 0;
++}
++
++/* Allocate bookkeeping only for stacks that actually accept host forwards. */
++static void hostfwd_ports_init(Slirp *slirp)
++{
++    if (!slirp->hostfwd_port_leases) {
++        slirp->hostfwd_port_leases = g_hash_table_new_full(
++            g_direct_hash, g_direct_equal, NULL, g_free);
++        g_queue_init(&slirp->hostfwd_retired_ports);
++        slirp->hostfwd_next_alias = SLIRP_HOSTFWD_ALIAS_FIRST;
++    }
++}
++
++/* Expired retired leases leave the FIFO; active leases have no expiry. */
++static void hostfwd_ports_prune(Slirp *slirp)
++{
++    uint64_t now = hostfwd_now_ms(slirp);
++    HostfwdPortLease *lease;
++
++    while ((lease = g_queue_peek_head(&slirp->hostfwd_retired_ports)) &&
++           lease->reuse_after_ms <= now) {
++        g_queue_pop_head(&slirp->hostfwd_retired_ports);
++        g_hash_table_remove(slirp->hostfwd_port_leases,
++                            GUINT_TO_POINTER((unsigned)lease->port));
++    }
++}
++
++/* Set only the guest-visible endpoint; the accepted host socket stays intact. */
++static void hostfwd_set_port(union slirp_sockaddr *address, uint16_t port)
++{
++    if (address->ss.ss_family == AF_INET) {
++        address->sin.sin_port = htons(port);
++    } else {
++        g_assert(address->ss.ss_family == AF_INET6);
++        address->sin6.sin6_port = htons(port);
++    }
++}
++
++/* Avoid both leased ports and an existing non-forwarded TCP tuple. */
++static bool hostfwd_port_available(struct socket *so, uint16_t port)
++{
++    Slirp *slirp = so->slirp;
++    union slirp_sockaddr foreign = so->fhost;
++    struct socket *other;
++
++    if (!port || g_hash_table_contains(slirp->hostfwd_port_leases,
++                                       GUINT_TO_POINTER((unsigned)port))) {
++        return false;
++    }
++    hostfwd_set_port(&foreign, port);
++    for (other = slirp->tcb.so_next; other != &slirp->tcb;
++         other = other->so_next) {
++        if (other != so && sockaddr_equal(&other->lhost.ss, &so->lhost.ss) &&
++            sockaddr_equal(&other->fhost.ss, &foreign.ss)) {
++            return false;
++        }
++    }
++    return true;
++}
++
++/* FIXED_EMULATION: a host may reuse its peer port before guest TIME_WAIT ends.
++ * Preserve an unleased peer port; otherwise use a free guest-facing alias.
++ * A global per-stack lease is conservative across AP/STA, addresses and IPv6.
++ * Exhaustion rejects this new connection, never overwrites a live mapping. */
++bool slirp_hostfwd_port_acquire(struct socket *so)
++{
++    Slirp *slirp = so->slirp;
++    HostfwdPortLease *lease;
++    uint16_t port = ntohs(so->so_fport);
++    unsigned attempts;
++
++    g_assert(!so->hostfwd_guest_port);
++    hostfwd_ports_init(slirp);
++    hostfwd_ports_prune(slirp);
++    if (!hostfwd_port_available(so, port)) {
++        for (attempts = 0; attempts < SLIRP_HOSTFWD_ALIAS_COUNT; attempts++) {
++            port = slirp->hostfwd_next_alias;
++            slirp->hostfwd_next_alias = port == UINT16_MAX ?
++                SLIRP_HOSTFWD_ALIAS_FIRST : port + 1;
++            if (hostfwd_port_available(so, port)) {
++                break;
++            }
++        }
++        if (attempts == SLIRP_HOSTFWD_ALIAS_COUNT) {
++            return false;
++        }
++    }
++    lease = g_new0(HostfwdPortLease, 1);
++    lease->port = port;
++    lease->active = true;
++    g_hash_table_insert(slirp->hostfwd_port_leases,
++                        GUINT_TO_POINTER((unsigned)port), lease);
++    so->hostfwd_guest_port = port;
++    hostfwd_set_port(&so->fhost, port);
++    return true;
++}
++
++/* Retain a closed tuple for two MSLs after its last possible guest packet. */
++void slirp_hostfwd_port_release(struct socket *so)
++{
++    HostfwdPortLease *lease;
++    Slirp *slirp = so->slirp;
++    uint16_t port = so->hostfwd_guest_port;
++
++    if (!port) {
++        return;
++    }
++    so->hostfwd_guest_port = 0;
++    lease = g_hash_table_lookup(slirp->hostfwd_port_leases,
++                                GUINT_TO_POINTER((unsigned)port));
++    g_assert(lease && lease->active);
++    lease->active = false;
++    /* Round upwards so a sub-millisecond clock fraction cannot shorten 2 MSL. */
++    lease->reuse_after_ms = hostfwd_now_ms(slirp) + SLIRP_HOSTFWD_QUIET_MS + 1;
++    g_queue_push_tail(&slirp->hostfwd_retired_ports, lease);
++}
++
++/* Free lazy host-only state after tcp_cleanup has released its sockets. */
++void slirp_hostfwd_ports_cleanup(Slirp *slirp)
++{
++    g_queue_clear(&slirp->hostfwd_retired_ports);
++    g_clear_pointer(&slirp->hostfwd_port_leases, g_hash_table_destroy);
++}
++
++/* Produce a deterministic migration stream independent of hash iteration. */
++static gint hostfwd_compare_port(gconstpointer left, gconstpointer right)
++{
++    const HostfwdPortLease *a = left, *b = right;
++    return (a->port > b->port) - (a->port < b->port);
++}
++
++/* Keep the retirement FIFO ordered after loading remaining lifetimes. */
++static gint hostfwd_compare_expiry(gconstpointer left, gconstpointer right,
++                                  gpointer opaque)
++{
++    const HostfwdPortLease *a = left, *b = right;
++    (void)opaque;
++    return (a->reuse_after_ms > b->reuse_after_ms) -
++           (a->reuse_after_ms < b->reuse_after_ms);
++}
++
++/* Save leases as remaining guest milliseconds; incoming host TCP is not migrated. */
++int slirp_hostfwd_ports_save(Slirp *slirp, SlirpWriteCb write_cb, void *opaque)
++{
++    SlirpOStream stream = { .write_cb = write_cb, .opaque = opaque };
++    GList *leases, *item;
++    uint64_t now = hostfwd_now_ms(slirp);
++    bool ok;
++
++    hostfwd_ports_init(slirp);
++    hostfwd_ports_prune(slirp);
++    leases = g_list_sort(g_hash_table_get_values(slirp->hostfwd_port_leases),
++                         hostfwd_compare_port);
++    ok = slirp_ostream_write_u32(&stream, 0x48504631) && /* HPF1 */
++         slirp_ostream_write_u32(&stream, g_hash_table_size(slirp->hostfwd_port_leases)) &&
++         slirp_ostream_write_u16(&stream, slirp->hostfwd_next_alias) &&
++         slirp_ostream_write_u16(&stream, 0);
++    for (item = leases; ok && item; item = item->next) {
++        HostfwdPortLease *lease = item->data;
++        uint64_t remaining = lease->active ? SLIRP_HOSTFWD_QUIET_MS + 1 :
++            lease->reuse_after_ms - now;
++        ok = slirp_ostream_write_u16(&stream, lease->port) &&
++             slirp_ostream_write_u32(&stream, MIN(remaining, SLIRP_HOSTFWD_QUIET_MS + 1));
++    }
++    g_list_free(leases);
++    return ok ? 0 : -EIO;
++}
++
++/* Validate an entire lease extension before changing the destination pool. */
++int slirp_hostfwd_ports_load(Slirp *slirp, SlirpReadCb read_cb, void *opaque)
++{
++    SlirpIStream stream = { .read_cb = read_cb, .opaque = opaque };
++    uint8_t header[12], record[6];
++    uint32_t magic, count;
++    uint16_t next, reserved;
++    uint64_t now = hostfwd_now_ms(slirp);
++    GHashTable *incoming;
++    GHashTableIter iterator;
++    gpointer key, value;
++    unsigned index;
++
++    if (!slirp_istream_read(&stream, header, sizeof(header))) {
++        return -EINVAL;
++    }
++    memcpy(&magic, header, 4);
++    memcpy(&count, header + 4, 4);
++    memcpy(&next, header + 8, 2);
++    memcpy(&reserved, header + 10, 2);
++    count = GUINT32_FROM_BE(count);
++    next = GUINT16_FROM_BE(next);
++    if (GUINT32_FROM_BE(magic) != 0x48504631 || count > UINT16_MAX ||
++        next < SLIRP_HOSTFWD_ALIAS_FIRST || reserved) {
++        return -EINVAL;
++    }
++    incoming = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_free);
++    for (index = 0; index < count; index++) {
++        HostfwdPortLease *lease;
++        uint16_t port;
++        uint32_t remaining;
++        if (!slirp_istream_read(&stream, record, sizeof(record))) {
++            goto invalid;
++        }
++        memcpy(&port, record, 2);
++        memcpy(&remaining, record + 2, 4);
++        port = GUINT16_FROM_BE(port);
++        remaining = GUINT32_FROM_BE(remaining);
++        key = GUINT_TO_POINTER((unsigned)port);
++        if (!port || !remaining || remaining > SLIRP_HOSTFWD_QUIET_MS + 1 ||
++            g_hash_table_contains(incoming, key)) {
++            goto invalid;
++        }
++        lease = g_new0(HostfwdPortLease, 1);
++        lease->port = port;
++        lease->reuse_after_ms = now + remaining;
++        g_hash_table_insert(incoming, key, lease);
++    }
++
++    hostfwd_ports_init(slirp);
++    g_queue_clear(&slirp->hostfwd_retired_ports);
++    /* A same-process load may still own host connections. Never steal their
++     * ports; conservatively rebase pre-load retirements after a clock rewind. */
++    g_hash_table_iter_init(&iterator, slirp->hostfwd_port_leases);
++    while (g_hash_table_iter_next(&iterator, NULL, &value)) {
++        HostfwdPortLease *lease = value;
++        if (!lease->active) {
++            lease->reuse_after_ms = now + SLIRP_HOSTFWD_QUIET_MS + 1;
++        }
++    }
++    g_hash_table_iter_init(&iterator, incoming);
++    while (g_hash_table_iter_next(&iterator, &key, &value)) {
++        HostfwdPortLease *old = g_hash_table_lookup(slirp->hostfwd_port_leases, key);
++        HostfwdPortLease *lease = value;
++        if (old) {
++            if (!old->active) {
++                old->reuse_after_ms = MAX(old->reuse_after_ms, lease->reuse_after_ms);
++            }
++        } else {
++            g_hash_table_iter_steal(&iterator);
++            g_hash_table_insert(slirp->hostfwd_port_leases, key, lease);
++        }
++    }
++    g_hash_table_destroy(incoming);
++    g_hash_table_iter_init(&iterator, slirp->hostfwd_port_leases);
++    while (g_hash_table_iter_next(&iterator, NULL, &value)) {
++        HostfwdPortLease *lease = value;
++        if (!lease->active) {
++            g_queue_push_tail(&slirp->hostfwd_retired_ports, lease);
++        }
++    }
++    g_queue_sort(&slirp->hostfwd_retired_ports, hostfwd_compare_expiry, NULL);
++    slirp->hostfwd_next_alias = next;
++    return 0;
++
++invalid:
++    g_hash_table_destroy(incoming);
++    return -EINVAL;
++}
+diff --git a/src/hostfwd_port.h b/src/hostfwd_port.h
+new file mode 100644
+--- /dev/null
++++ b/src/hostfwd_port.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++#ifndef SLIRP_HOSTFWD_PORT_H
++#define SLIRP_HOSTFWD_PORT_H
++
++#include "libslirp.h"
++
++#define SLIRP_HOSTFWD_ALIAS_FIRST 49152
++#define SLIRP_HOSTFWD_ALIAS_COUNT 16384
++/* RFC 9293: two MSLs, with an MSL of two minutes. This uses guest time. */
++#define SLIRP_HOSTFWD_QUIET_MS 240000
++
++struct socket;
++bool slirp_hostfwd_port_acquire(struct socket *so);
++void slirp_hostfwd_port_release(struct socket *so);
++void slirp_hostfwd_ports_cleanup(Slirp *slirp);
++int slirp_hostfwd_ports_save(Slirp *slirp, SlirpWriteCb write_cb, void *opaque);
++int slirp_hostfwd_ports_load(Slirp *slirp, SlirpReadCb read_cb, void *opaque);
++
++#endif

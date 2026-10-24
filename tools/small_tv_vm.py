@@ -7,6 +7,7 @@ import json
 import os
 import re
 from small_tv_network import seed_clock_network, seed_setup_network
+from small_tv_display import ppm_pixels, wait_for_display_recovery
 from small_tv_web import reserve_web_ports, user_network_options
 from esp_services import network_profile, service_endpoints
 from esp_board import compile_profile
@@ -269,13 +270,6 @@ def control(state, action, screenshot=None):
             return {'screenshot': str(path)}
         return {'session': session, 'status': qmp.execute('query-status')}
 
-def ppm_pixels(path):
-    data = path.read_bytes()
-    header, width_height, maximum, pixels = data.split(b'\n', 3)
-    if header != b'P6' or maximum != b'255' or width_height != b'240 240' or len(pixels) != 240*240*3:
-        raise AssertionError('Unexpected LCD framebuffer dimensions/format')
-    return pixels
-
 def capture_png(qmp, path):
     """QEMU's PPM capture works even when the Windows build has no libpng."""
     ppm = path.with_suffix('.ppm')
@@ -415,6 +409,15 @@ def ntp_reply_observation(qmp, state, metadata_available, diagnostics, layout):
             'expected_utc_seconds': expected, 'difference_seconds': actual - expected}
 
 
+def radio_virtual_us(qmp):
+    """Read the existing C2 radio counter without triggering an MMIO snapshot."""
+    output = qmp.execute('human-monitor-command', **{'command-line': 'xp /1wx 0x6004d000'})
+    values = re.findall(r'0x([0-9a-fA-F]{8})\b', output)
+    if len(values) != 1:
+        raise ValueError('Short reset clock observation')
+    return int(values[0], 16)
+
+
 def wait_for_clock_recovery(qmp, state, clock_layout, previous_count,
                             metadata_available, diagnostics, host_timeout=60, guest_timeout=15):
     """Wait for a fresh processed NTP reply, bounded in both guest and host time.
@@ -423,14 +426,7 @@ def wait_for_clock_recovery(qmp, state, clock_layout, previous_count,
     seconds can contain less guest time under icount, especially with DEBUG.
     A new response, actual SDK UTC and native connection/sync flags are required.
     """
-    def virtual_us():
-        output = qmp.execute('human-monitor-command', **{'command-line': 'xp /1wx 0x6004d000'})
-        values = re.findall(r'0x([0-9a-fA-F]{8})\b', output)
-        if len(values) != 1:
-            raise ValueError('Short reset clock observation')
-        return int(values[0], 16)
-
-    started, initial = time.monotonic(), virtual_us()
+    started, initial = time.monotonic(), radio_virtual_us(qmp)
     polls = 0
     while True:
         sample = ntp_reply_observation(qmp, state, metadata_available, diagnostics, clock_layout)
@@ -439,7 +435,7 @@ def wait_for_clock_recovery(qmp, state, clock_layout, previous_count,
         host_seconds = time.monotonic() - started
         # The radio exposes the low 32 microsecond bits; one bounded wait
         # cannot span a full wrap, but may start immediately before a wrap.
-        guest_seconds = ((virtual_us() - initial) & 0xffffffff) / 1e6
+        guest_seconds = ((radio_virtual_us(qmp) - initial) & 0xffffffff) / 1e6
         polls += 1
         if host_seconds >= host_timeout or guest_seconds >= guest_timeout:
             raise TimeoutError(f'No fresh synchronized clock after reset: '
@@ -453,6 +449,49 @@ def wait_for_clock_recovery(qmp, state, clock_layout, previous_count,
         time.sleep(.1)
 
 
+def observe_reset_subsystems(qmp, state, clock_layout, previous_count,
+                             metadata_available, diagnostics, network):
+    """Run network and display recovery independently, retaining each failure.
+
+    FIXED_TEST: a network timeout must not skip panel observation, and a panel
+    failure must not erase the independently observed DHCP/SNTP result.
+    """
+    result = {}
+    if network == 'clock':
+        try:
+            observation = wait_for_clock_recovery(qmp, state, clock_layout,
+                previous_count, metadata_available, diagnostics)
+            result['network'] = {'passed': observation['passed'], 'observation': observation, 'error': None}
+        except Exception as exc:
+            result['network'] = {'passed': False, 'observation': None, 'error': str(exc)}
+    else:
+        result['network'] = {'passed': None, 'observation': None, 'error': None}
+    try:
+        observation = wait_for_display_recovery(qmp, state, lambda: radio_virtual_us(qmp))
+        result['display'] = {'passed': observation['passed'], 'observation': observation, 'error': None}
+    except Exception as exc:
+        result['display'] = {'passed': False, 'observation': None, 'error': str(exc)}
+    return result
+
+
+def subsystem_check_results(checks):
+    """Publish distinct boot, display, network and source-integrity decisions."""
+    names = {
+        'boot': ('machine_still_running', 'rom_and_bootloader', 'no_panic_or_watchdog',
+                 'no_panic_after_reset', 'reset_reboots'),
+        'display': ('lcd_240x240', 'lcd_has_content', 'animation_updates', 'display_ready_after_reset'),
+        'network': ('application_runtime_ready', 'ap_started', 'ntp_reply_sent', 'guest_clock_set_by_sntp',
+                    'wifi_associated', 'station_dhcp', 'sntp_notification_received',
+                    'network_recovered_after_reset', 'clock_recovered_after_reset', 'runtime_ready_after_reset'),
+        'source_integrity': ('source_flash_unchanged', 'source_artifacts_unchanged'),
+    }
+    result = {}
+    for name, keys in names.items():
+        selected = {key: checks[key] for key in keys if key in checks}
+        result[name] = {'passed': all(selected.values()) if selected else None, 'checks': selected}
+    return result
+
+
 def test_vm(args, state):
     args.display, args.persistent, args.paused = 'none', False, False
     # Reject a wrong/missing observation ELF before starting a disposable VM.
@@ -461,7 +500,8 @@ def test_vm(args, state):
     runtime = after_reset_runtime = None
     diagnostics, reply_metadata = True, False
     ntp_observation = reset_ntp_observation = None
-    reset_readiness = None
+    reset_readiness = reset_display_observation = reset_subsystems = None
+    previous_rom_boots = after_rom_boots = None
     session, prepared = launch(args, state)
     before = digest((state / 'flash.bin').read_bytes())
     screenshots = []
@@ -499,11 +539,11 @@ def test_vm(args, state):
             'no_panic_or_watchdog': not any(x in uart for x in ('Guru Meditation', 'abort() was called', 'watchdog got triggered', 'assert failed')),
         }
         if args.firmware == 'reconstructed':
-            # A real rendered application plus SDK-owned network state proves
-            # readiness even when INFO and the final app_main message are absent.
+            # ROM markers, network state and LCD content are separate checks;
+            # optional INFO/app_main log messages are not readiness conditions.
             checks['rom_and_bootloader'] = ('ESP-ROM:esp32c2' in uart and
-                'load:0x' in uart and 'entry 0x' in uart and checks['lcd_has_content'])
-            checks['application_runtime_ready'] = checks['lcd_has_content'] and (
+                'load:0x' in uart and 'entry 0x' in uart)
+            checks['application_runtime_ready'] = (
                 runtime['connected'] if args.network == 'clock' else runtime['ap_active'])
             if args.network == 'offline':
                 checks['ap_started'] = runtime['ap_active']
@@ -525,16 +565,17 @@ def test_vm(args, state):
                 checks['station_dhcp'] = runtime['station_address'] == '10.0.2.15'
                 checks['sntp_notification_received'] = runtime['time_synced']
         # Reset the VM and verify the guest can boot and draw a second time.
+        previous_rom_boots = uart.count('ESP-ROM:esp32c2')
         with QMP(session['qmp_port'], session['name']) as qmp: qmp.execute('system_reset')
-        if args.network == 'clock':
-            with QMP(session['qmp_port'], session['name']) as qmp:
-                reset_readiness = wait_for_clock_recovery(qmp, state, clock_layout,
-                    ntp_observation['response_count'] if ntp_observation else 0,
-                    reply_metadata, diagnostics)
-        else:
-            time.sleep(8)
         with QMP(session['qmp_port'], session['name']) as qmp:
-            qmp.execute('screendump', filename=str(state / 'after-reset.ppm'))
+            reset_subsystems = observe_reset_subsystems(qmp, state, clock_layout,
+                ntp_observation['response_count'] if ntp_observation else 0,
+                reply_metadata, diagnostics, args.network)
+            reset_readiness = reset_subsystems['network']['observation']
+            reset_display_observation = reset_subsystems['display']['observation']
+            checks['display_ready_after_reset'] = reset_subsystems['display']['passed']
+            if args.network == 'clock':
+                checks['network_recovered_after_reset'] = reset_subsystems['network']['passed']
             if args.network == 'clock':
                 reset_ntp_observation = ntp_reply_observation(qmp, state, reply_metadata, diagnostics, clock_layout)
                 checks['clock_recovered_after_reset'] = (reset_ntp_observation is not None and
@@ -548,7 +589,8 @@ def test_vm(args, state):
                     if args.network == 'clock' else after_reset_runtime['ap_active'])
         uart2 = (state / 'uart.log').read_text(errors='replace')
         checks['no_panic_after_reset'] = 'Guru Meditation' not in uart2 and 'assert failed' not in uart2
-        checks['reset_reboots'] = uart2.count('ESP-ROM:esp32c2') >= 2 and sum(p != 0 for p in ppm_pixels(state / 'after-reset.ppm')) > 1000
+        after_rom_boots = uart2.count('ESP-ROM:esp32c2')
+        checks['reset_reboots'] = after_rom_boots > previous_rom_boots >= 1
     except Exception as exc:
         checks = {'test_completed': False}
         error = str(exc)
@@ -571,6 +613,9 @@ def test_vm(args, state):
               'runtime_observation': {'layout': layout, 'before_reset': runtime, 'after_reset': after_reset_runtime},
               'clock_layout': clock_layout, 'ntp_observation': ntp_observation, 'reset_ntp_observation': reset_ntp_observation,
               'qemu_diagnostics_enabled': diagnostics, 'reset_readiness': reset_readiness,
+              'reset_display_observation': reset_display_observation,
+              'reset_subsystems': reset_subsystems, 'checks_by_subsystem': subsystem_check_results(checks),
+              'boot_observation': {'rom_boots_before_reset': previous_rom_boots, 'rom_boots_after_reset': after_rom_boots},
               'tested_at_utc': dt.datetime.now(dt.timezone.utc).isoformat()}
     save_json(state / 'test-report.json', report)
     return report

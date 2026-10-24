@@ -1,0 +1,27 @@
+diff --git a/src/socket.c b/src/socket.c
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -804,6 +804,14 @@
+                            const struct sockaddr *laddr, socklen_t laddrlen,
+                            int flags)
+ {
++    /* FIXED_EMULATION: queue a complete browser connection burst on Windows.
++     * A backlog of one can refuse host clients before guest TCP sees a SYN.
++     * Winsock ignores backlog changes after the first listen() call. */
++#ifdef _WIN32
++    const int backlog = SOMAXCONN;
++#else
++    const int backlog = 1;
++#endif
+     struct socket *so;
+     slirp_os_socket s;
+     int opt = 1;
+@@ -876,7 +884,7 @@
+         (haddr->sa_family == AF_INET6 && slirp_socket_set_v6only(s, (flags & SS_HOSTFWD_V6ONLY) != 0) < 0) ||
+         (slirp_socket_set_fast_reuse(s) < 0) ||
+         (bind(s, haddr, haddrlen) < 0) ||
+-        (listen(s, 1) < 0)) {
++        (listen(s, backlog) < 0)) {
+         int tmperrno = errno; /* Don't clobber the real reason we failed */
+         if (have_valid_socket(s)) {
+             closesocket(s);

@@ -668,7 +668,12 @@ static int net_slirp_init(NetClientState *peer, const char *model,
      * FIXME: use bitfields of features? teach libslirp to save with
      * specific version?
      */
+#ifdef SLIRP_HOSTFWD_PORT_LEASES
+    /* FIXED_EMULATION: the pinned Windows dependency also migrates port leases. */
+    g_assert(slirp_state_version() == 5);
+#else
     g_assert(slirp_state_version() == 4);
+#endif
     register_savevm_live("slirp", VMSTATE_INSTANCE_ID_ANY,
                          slirp_state_version(), &savevm_slirp_state, s->slirp);
 
