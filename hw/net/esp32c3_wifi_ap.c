@@ -36,6 +36,7 @@
 #include "esp32c3_wifi_trace.h"
 #include "esp32c3_wifi_link.h"
 #include "esp32c3_wifi_interface.h"
+#include "esp32c3_wifi_fault.h"
 
 #include "hw/irq.h"
 #include "hw/net/esp32c3_wifi.h"
@@ -518,6 +519,10 @@ void Esp32_WLAN_insert_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
 
     frame->interface_id = esp32_wifi_interface_id(s, s->wlan);
     insertCRC(frame);
+    if (esp32_wifi_fault_drop(s, frame, true)) {
+        free(frame);
+        return;
+    }
     if (esp32_wifi_packet_lost(s) ||
         s->inject_queue_size >= s->queue_limit) {
         esp32_wifi_trace_packet(s, frame, "enqueue-drop", s->rx_desc, 0);
@@ -1218,6 +1223,13 @@ void Esp32_WLAN_handle_frame(Esp32C3WifiState *s, struct mac80211_frame *frame)
     if (start_softap_clients(s, frame)) return;
     if (!esp32_wifi_select_guest_interface(s, frame)) {
         /* An opt-in virtual client ignores other SSIDs and malformed beacons. */
+        esp32c3_wifi_set_packet_status(s, ESP32C3_RADIO_PHYA_ACK);
+        Esp32_WLAN_frame_delivered(s);
+        return;
+    }
+    if (esp32_wifi_fault_drop(s, frame, false)) {
+        /* Drop at the virtual client's protocol boundary after guest TX.
+         * Radio TX completion remains normal; this is not an RF ACK model. */
         esp32c3_wifi_set_packet_status(s, ESP32C3_RADIO_PHYA_ACK);
         Esp32_WLAN_frame_delivered(s);
         return;

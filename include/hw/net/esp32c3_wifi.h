@@ -118,6 +118,9 @@ struct Esp32C3WifiState {
     Esp32C3WifiInterface softap;
     Esp32C3WifiInterface softap_extra[ESP32_WIFI_SOFTAP_CLIENTS - 1];
     uint32_t softap_client_mask;
+    uint32_t softap_drop_mask;
+    uint64_t softap_dropped[ESP32_WIFI_SOFTAP_CLIENTS][7];
+    int64_t softap_drop_last_ns[ESP32_WIFI_SOFTAP_CLIENTS][7];
     uint8_t softap_host_peer;
     uint8_t softap_host_ip[4];
     Esp32C3WifiInterface *wlan;

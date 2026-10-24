@@ -24,6 +24,7 @@
 #include "trace.h"
 #include "esp32c3_wifi_trace.h"
 #include "esp32c3_wifi_interface.h"
+#include "esp32c3_wifi_fault.h"
 
 /* C2 ROM uses RX 0x64/0x68 and TX PLCP0 0xce8; C3 uses 0x84/0x88
  * and 0xd08. Keep the shared 802.11 and DMA implementation. */
@@ -538,6 +539,44 @@ static void wifi_set_softap_mask(Object *obj, Visitor *v, const char *name, void
     Esp32_WLAN_set_softap_clients(ESP32C3_WIFI(obj), value);
 }
 
+/* Return pending one-shot external packet losses without enabling tracing. */
+static void wifi_get_drop_mask(Object *obj, Visitor *v, const char *name, void *opaque, Error **errp)
+{
+    visit_type_uint32(v, name, &ESP32C3_WIFI(obj)->softap_drop_mask, errp);
+}
+
+/* Reject the whole invalid value before consuming or replacing any fault. */
+static void wifi_set_drop_mask(Object *obj, Visitor *v, const char *name, void *opaque, Error **errp)
+{
+    uint32_t value;
+    if (!visit_type_uint32(v, name, &value, errp)) return;
+    if (value & ~ESP32_WIFI_FAULT_MASK) {
+        error_setg(errp, "softap-drop-next contains an unknown peer/stage bit");
+        return;
+    }
+    ESP32C3_WIFI(obj)->softap_drop_mask = value;
+}
+
+/* Format numeric counters only on explicit QMP query; never keep packet data. */
+static char *wifi_get_client_faults(Object *obj, Error **errp)
+{
+    Esp32C3WifiState *s = ESP32C3_WIFI(obj);
+    GString *json = g_string_new("[");
+    for (unsigned peer = 0; peer < ESP32_WIFI_SOFTAP_CLIENTS; peer++) {
+        g_string_append_printf(json, "%s{\"index\":%u,\"dropped\":[", peer ? "," : "", peer);
+        for (unsigned stage = 0; stage < ESP32_WIFI_FAULT_STAGES; stage++) {
+            g_string_append_printf(json, "%s%" PRIu64, stage ? "," : "", s->softap_dropped[peer][stage]);
+        }
+        g_string_append(json, "],\"last_drop_us\":[");
+        for (unsigned stage = 0; stage < ESP32_WIFI_FAULT_STAGES; stage++) {
+            g_string_append_printf(json, "%s%" PRId64, stage ? "," : "", s->softap_drop_last_ns[peer][stage] / 1000);
+        }
+        g_string_append(json, "]}");
+    }
+    g_string_append_c(json, ']');
+    return g_string_free(json, false);
+}
+
 static bool wifi_get_debug_logging(Object *obj, Error **errp)
 {
     /* Expose build capability without enabling logging or changing the guest. */
@@ -557,6 +596,9 @@ static void esp32c3_wifi_init(Object *obj)
     s->ntp_unix_seconds = -1;
     s->station_ap_online = true;
     s->softap_client_mask = 1;
+    object_property_add(obj, "softap-drop-next", "uint32", wifi_get_drop_mask,
+                        wifi_set_drop_mask, NULL, NULL);
+    object_property_add_str(obj, "softap-client-faults", wifi_get_client_faults, NULL);
     object_property_add(obj, "softap-client-mask", "uint32", wifi_get_softap_mask,
                         wifi_set_softap_mask, NULL, NULL);
     object_property_add_str(obj, "softap-clients", wifi_get_softap_clients, NULL);
