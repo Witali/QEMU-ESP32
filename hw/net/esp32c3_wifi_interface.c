@@ -49,6 +49,8 @@ void esp32_wifi_reset_interfaces(Esp32C3WifiState *s)
         memcpy(peer->ap_macaddr, (uint8_t[]){0x52, 0x54, 0, 0x43, 0, 2}, 6);
         peer->ap_macaddr[5] += i;
     }
+    s->softap_host_peer = 0;
+    memset(s->softap_host_ip, 0, sizeof(s->softap_host_ip));
     s->wlan = &s->station;
 }
 
@@ -104,6 +106,10 @@ bool esp32_wifi_select_guest_interface(Esp32C3WifiState *s, const struct mac8021
                 frame->frame_length - IEEE80211_HEADER_SIZE - 4, &reply)) {
             client = reply.mac;
         }
+        if (!memcmp(client, (uint8_t[]){255, 255, 255, 255, 255, 255}, 6)) {
+            Esp32C3WifiInterface *relay = esp32_wifi_softap_relay(s);
+            if (relay) s->wlan = relay;
+        }
         for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
             Esp32C3WifiInterface *peer = esp32_wifi_softap_client(s, i);
             if (!memcmp(client, peer->ap_macaddr, 6)) {
@@ -133,6 +139,22 @@ void esp32_wifi_learn_guest_ip(Esp32C3WifiState *s, const struct mac80211_frame 
     if (ip && ldl_be_p(ip) && ip[0] < 224) memcpy(s->wlan->ipaddr, ip, 4);
 }
 
+/* The shared Ethernet bridge uses one present, DHCP-bound AP peer.
+ * Selecting by association state avoids routing through a departed primary.
+ * Separate per-client backends/host endpoints remain a different capability.
+ */
+Esp32C3WifiInterface *esp32_wifi_softap_relay(Esp32C3WifiState *s)
+{
+    for (unsigned i = 0; i < ESP32_WIFI_SOFTAP_CLIENTS; i++) {
+        Esp32C3WifiInterface *peer = esp32_wifi_softap_client(s, i);
+        if (esp32_wifi_client_online(s, peer) &&
+            peer->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
+            return peer;
+        }
+    }
+    return NULL;
+}
+
 /* Demultiplex SLIRP replies by guest MAC or target IP, including broadcast ARP.
  * DHCP broadcast replies belong to STA; the AP DHCP server lives in the guest.
  */
@@ -146,5 +168,6 @@ void esp32_wifi_select_ethernet_interface(Esp32C3WifiState *s, const uint8_t *da
         softap = !memcmp(data, s->softap.macaddr, 6) ||
                  (target && ldl_be_p(s->softap.ipaddr) && !memcmp(target, s->softap.ipaddr, 4));
     }
-    s->wlan = softap ? &s->softap : &s->station;
+    Esp32C3WifiInterface *relay = softap ? esp32_wifi_softap_relay(s) : NULL;
+    s->wlan = softap ? (relay ? relay : &s->softap) : &s->station;
 }

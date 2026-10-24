@@ -1,0 +1,317 @@
+{
+  "passed": true,
+  "network_lifecycle_complete": false,
+  "rf_acceptance": false,
+  "lcd_acceptance": false,
+  "tests": [
+    {
+      "name": "native-primary-relay-v5",
+      "report_sha256": "a80292c03a028365d1d5c43da29128fefdec8752b5fca4418efcdeaf726d0319",
+      "firmware": "reconstructed",
+      "departure": "primary",
+      "qemu_sha256": "cce6b4717d4da21ca1871b817ab697346d428d803f733377dac74ba6e57e5aaa",
+      "phases": [
+        {
+          "mask": 1,
+          "active_peers": [
+            "52:54:00:43:00:02"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 3,
+          "active_peers": [
+            "52:54:00:43:00:02",
+            "52:54:00:43:00:03"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 2,
+          "active_peers": [
+            "52:54:00:43:00:03"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 0,
+          "active_peers": [],
+          "http": null
+        },
+        {
+          "mask": 2,
+          "active_peers": [
+            "52:54:00:43:00:03"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        }
+      ],
+      "server_handles": [
+        1070362008
+      ],
+      "owners_stopped": true
+    },
+    {
+      "name": "native-secondary-relay-v5",
+      "report_sha256": "e60c8f4fc26bf9dc9c56dd5c715923c8af1f6b51f14499b70a0688ec8f382539",
+      "firmware": "reconstructed",
+      "departure": "secondary",
+      "qemu_sha256": "cce6b4717d4da21ca1871b817ab697346d428d803f733377dac74ba6e57e5aaa",
+      "phases": [
+        {
+          "mask": 1,
+          "active_peers": [
+            "52:54:00:43:00:02"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 3,
+          "active_peers": [
+            "52:54:00:43:00:02",
+            "52:54:00:43:00:03"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 1,
+          "active_peers": [
+            "52:54:00:43:00:02"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 0,
+          "active_peers": [],
+          "http": null
+        },
+        {
+          "mask": 1,
+          "active_peers": [
+            "52:54:00:43:00:02"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        }
+      ],
+      "server_handles": [
+        1070362008
+      ],
+      "owners_stopped": true
+    },
+    {
+      "name": "factory-primary-relay-v5",
+      "report_sha256": "ce28e41f6e450c6192263e692422a7f26d7d688261d6f52df1e2cdcc3eb3844d",
+      "firmware": "original",
+      "departure": "primary",
+      "qemu_sha256": "cce6b4717d4da21ca1871b817ab697346d428d803f733377dac74ba6e57e5aaa",
+      "phases": [
+        {
+          "mask": 1,
+          "active_peers": [
+            "52:54:00:43:00:02"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 3,
+          "active_peers": [
+            "52:54:00:43:00:02",
+            "52:54:00:43:00:03"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 2,
+          "active_peers": [
+            "52:54:00:43:00:03"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 0,
+          "active_peers": [],
+          "http": null
+        },
+        {
+          "mask": 2,
+          "active_peers": [
+            "52:54:00:43:00:03"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        }
+      ],
+      "server_handles": [
+        1070409944,
+        0,
+        0
+      ],
+      "owners_stopped": true
+    },
+    {
+      "name": "factory-secondary-relay-v5",
+      "report_sha256": "14bc13f88bf90c23bf4fc83e5f3ca10abe96457ee7466ed19013c6ad2077bc3e",
+      "firmware": "original",
+      "departure": "secondary",
+      "qemu_sha256": "cce6b4717d4da21ca1871b817ab697346d428d803f733377dac74ba6e57e5aaa",
+      "phases": [
+        {
+          "mask": 1,
+          "active_peers": [
+            "52:54:00:43:00:02"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 3,
+          "active_peers": [
+            "52:54:00:43:00:02",
+            "52:54:00:43:00:03"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 1,
+          "active_peers": [
+            "52:54:00:43:00:02"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        },
+        {
+          "mask": 0,
+          "active_peers": [],
+          "http": null
+        },
+        {
+          "mask": 1,
+          "active_peers": [
+            "52:54:00:43:00:02"
+          ],
+          "http": {
+            "status": 200,
+            "body": "0"
+          }
+        }
+      ],
+      "server_handles": [
+        1070409944,
+        0,
+        0
+      ],
+      "owners_stopped": true
+    }
+  ],
+  "candidate_sha256": "cce6b4717d4da21ca1871b817ab697346d428d803f733377dac74ba6e57e5aaa",
+  "xtensa_unchanged_sha256": "821d98070aa131ccdc5c7ccd87336c90c13a7c205dfe991404ed242f9da0f0e1",
+  "raw_evidence_repository": "Witali/yoRadio",
+  "raw_evidence_path": "Small_TV/qemu/parity/network-relay-validation-20261024.json",
+  "scope": "Selected actual two-peer departures and zero->one recovery. Per-client endpoints, deterministic management-loss injection and full churn/APSTA remain open.",
+  "c3_boot": {
+    "default": {
+      "passed": true,
+      "checks": {
+        "running": true,
+        "console_has_content": true,
+        "display_dimensions": true,
+        "no_panic_or_watchdog": true,
+        "source_flash_unchanged": true,
+        "source_artifacts_unchanged": true
+      },
+      "hardware_profile": null,
+      "machine": "esp32c3",
+      "duration_seconds": 60,
+      "qemu_sha256": "cce6b4717d4da21ca1871b817ab697346d428d803f733377dac74ba6e57e5aaa",
+      "firmware_sources": {
+        "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+      },
+      "pixel_sha256": "f5113e94a065aa7b031c2ff7b46f1c5f56bd6618de288271e69becadff6a567c",
+      "nonzero_bytes": 46224,
+      "lcd_area_nonzero_bytes": 46224,
+      "cyd_boot_scope": null
+    },
+    "modular": {
+      "passed": true,
+      "checks": {
+        "running": true,
+        "console_has_content": true,
+        "display_dimensions": true,
+        "no_panic_or_watchdog": true,
+        "source_flash_unchanged": true,
+        "source_artifacts_unchanged": true
+      },
+      "hardware_profile": {
+        "schema": 1,
+        "name": "c3-oled",
+        "soc": "esp32c3",
+        "machine": "esp32c3,default-peripherals=off",
+        "arguments": [
+          "-device",
+          "{\"driver\":\"esp-i2c-module\",\"id\":\"oled\",\"bus\":\"/i2c0/i2c\",\"gpio\":\"/machine/gpio\",\"address\":60,\"model\":\"ssd1306\",\"scl\":6,\"sda\":5,\"properties\":\"{\\\"visible-width\\\":72,\\\"visible-height\\\":40,\\\"column-offset\\\":28,\\\"magnify\\\":4}\"}"
+        ],
+        "sd_images": [],
+        "profile": "C:\\Work\\QEMU-ESP32\\.worktree\\small-tv-ap-clients\\configs\\boards\\c3-oled.json",
+        "network": {
+          "station_ssid": "yoRadio-QEMU",
+          "urls": [],
+          "ntp_hosts": []
+        },
+        "network_arguments": [],
+        "service_urls": []
+      },
+      "machine": "esp32c3",
+      "duration_seconds": 60,
+      "qemu_sha256": "cce6b4717d4da21ca1871b817ab697346d428d803f733377dac74ba6e57e5aaa",
+      "firmware_sources": {
+        "flash.bin": "162f05aef80094523616ca200ec510cbc8738172069858e6045463ec12e48b11"
+      },
+      "pixel_sha256": "f5113e94a065aa7b031c2ff7b46f1c5f56bd6618de288271e69becadff6a567c",
+      "nonzero_bytes": 46224,
+      "lcd_area_nonzero_bytes": 46224,
+      "cyd_boot_scope": null
+    }
+  }
+}

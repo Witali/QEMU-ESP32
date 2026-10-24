@@ -72,6 +72,7 @@ typedef struct Esp32C3WifiInterface {
     uint8_t ipaddr[4];
     uint8_t offered_ipaddr[4];
     Esp32WifiDhcpLease dhcp;
+    int64_t management_retry_ns;
     uint8_t macaddr[6];
     uint8_t ap_macaddr[6];
     uint8_t associated_ap_macaddr[6];
@@ -117,6 +118,8 @@ struct Esp32C3WifiState {
     Esp32C3WifiInterface softap;
     Esp32C3WifiInterface softap_extra[ESP32_WIFI_SOFTAP_CLIENTS - 1];
     uint32_t softap_client_mask;
+    uint8_t softap_host_peer;
+    uint8_t softap_host_ip[4];
     Esp32C3WifiInterface *wlan;
     int inject_queue_size;
     struct mac80211_frame *inject_queue;

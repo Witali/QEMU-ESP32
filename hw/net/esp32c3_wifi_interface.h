@@ -11,4 +11,5 @@ Esp32C3WifiInterface *esp32_wifi_softap_client(Esp32C3WifiState *s, unsigned ind
 uint8_t esp32_wifi_interface_id(Esp32C3WifiState *s, Esp32C3WifiInterface *interface);
 Esp32C3WifiInterface *esp32_wifi_interface_by_id(Esp32C3WifiState *s, uint8_t id);
 bool esp32_wifi_client_online(Esp32C3WifiState *s, Esp32C3WifiInterface *interface);
+Esp32C3WifiInterface *esp32_wifi_softap_relay(Esp32C3WifiState *s);
 #endif

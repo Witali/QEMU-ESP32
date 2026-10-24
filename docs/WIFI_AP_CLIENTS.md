@@ -45,3 +45,44 @@ The QMP presence controls do not emulate radio physics or WPA encryption.
 
 DHCP Client Identifier uniqueness follows
 [RFC 2132 section 9.14](https://www.rfc-editor.org/rfc/rfc2132.html#section-9.14).
+
+
+## Relay recovery checkpoint, 2026-10-24
+
+The shared host Ethernet bridge now selects a present DHCP-bound peer instead
+of always using slot 0. AP broadcasts use that same active relay. A normal ARP
+request teaches the guest the changed L2 neighbor before forwarding IPv4 through
+a new relay (or a different host source IP). It uses the existing radio/DMA path;
+there are no guest RAM/ARP-table writes, direct HTTP calls or extra guest delays.
+The existing link shaping/queue/loss policy applies to the ARP frame too.
+
+The first prototype selected the surviving peer but still timed out: the guest
+ARP entry pointed at the departed primary. The final probe targets the actual
+AP IPv4 address and advertises the bridge host's source IP at the new peer MAC.
+The SDK lwIP etharp_input updates that sender entry for a request directed to it.
+This is one bridged host path; independent per-peer host backends/endpoints are
+still a separate capability.
+
+One factory reconnect also exposed missing management retransmission. The
+virtual peer now distinguishes probe/authentication/association waits and retries
+the outstanding exchange after one virtual second on the existing beacon event.
+It does not restart an established association or add a guest busy wait.
+Exhaustive management-loss injection and DHCP retransmission/lease renewal are
+not claimed by this checkpoint.
+
+Candidate SHA-256:
+`cce6b4717d4da21ca1871b817ab697346d428d803f733377dac74ba6e57e5aaa`.
+Factory and reconstructed images both passed departure of either peer and return
+from zero (four runs, sixteen ordinary HTTP 200 responses). The native server
+still starts once; the factory's repeated-start handle defect remains observable.
+Failed primary-before-ARP controls and the stalled factory reconnect are retained
+separately, not counted as passes. See validation/wifi-bridge-20261024.json and
+the raw typed evidence in yoRadio at the stated path. Full lifecycle/traffic/churn,
+RF/WPA and physical hardware acceptance remain open.
+
+
+Final-candidate C3 OLED default/modular boot checks each passed for 60 seconds
+(no panic/watchdog, correct console dimensions/content, unchanged inputs); raw
+reports are included in validation/wifi-bridge-20261024.json. All owned processes
+were stopped and reaped. Xtensa remains the unchanged baseline hash stated above;
+no new claim about the known CYD IDF6 PHY issue is made.

@@ -46,6 +46,8 @@
 // 50ms between beacons
 #define BEACON_TIME 500000000
 #define WAIT_ACK_TIMEOUT 10000000
+/* Retry virtual peer management exchanges; no guest task or busy-wait delay. */
+#define MANAGEMENT_RETRY_NS 1000000000
 #define DEBUG 0
 #define ENABLE_BEACON 1
 #define DEBUG_DUMPFRAMES 0
@@ -232,6 +234,7 @@ void Esp32_WLAN_set_softap_clients(Esp32C3WifiState *s, uint32_t mask)
             peer->ap_state = Esp32_WLAN__STATE_NOT_AUTHENTICATED;
             memset(peer->offered_ipaddr, 0, sizeof(peer->offered_ipaddr));
             memset(&peer->dhcp, 0, sizeof(peer->dhcp));
+            if (s->softap_host_peer == i + 1) s->softap_host_peer = 0;
         }
     }
     s->softap_client_mask = mask;
@@ -570,6 +573,38 @@ static _Bool Esp32_WLAN_can_receive(NetClientState *ncs)
     return 1;
 }
 
+/* Announce the bridge's new L2 next hop with an ordinary ARP request.
+ * The host Ethernet backend is behind one selected virtual Wi-Fi peer. After
+ * that peer changes, the guest must learn the new source MAC before replying
+ * to an IPv4 frame; otherwise its ARP entry still targets a departed client.
+ * This goes through normal radio/DMA and guest ARP processing, not RAM edits.
+ */
+static void refresh_bridge_neighbor(Esp32C3WifiState *s,
+                                    const uint8_t *data, size_t size)
+{
+    uint8_t id = esp32_wifi_interface_id(s, s->wlan);
+    if (!s->softap_client_ssid || !id || size < 34 ||
+        data[12] != 8 || data[13] != 0 || data[14] >> 4 != 4 ||
+        (s->softap_host_peer == id && !memcmp(s->softap_host_ip, data + 26, 4))) {
+        return;
+    }
+    uint8_t arp[42] = {
+        255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 8, 6,
+        0, 1, 8, 0, 6, 4, 0, 1,
+    };
+    memcpy(arp + 6, s->wlan->ap_macaddr, 6);
+    memcpy(arp + 22, s->wlan->ap_macaddr, 6);
+    memcpy(arp + 28, data + 26, 4);
+    memcpy(arp + 38, data + 30, 4);
+    struct mac80211_frame *request = Esp32_WLAN_create_data_packet(s, arp, sizeof(arp));
+    memcpy(request->destination_address, s->wlan->softap_macaddr, 6);
+    request->frame_control.flags = 1;
+    Esp32_WLAN_init_ap_frame(s, request);
+    Esp32_WLAN_insert_frame(s, request);
+    s->softap_host_peer = id;
+    memcpy(s->softap_host_ip, data + 26, 4);
+}
+
 static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
                                     const uint8_t *buf, size_t size)
 {
@@ -593,6 +628,9 @@ static ssize_t Esp32_WLAN_receive(NetClientState *ncs,
         return size;
     }
     if (!esp32_wifi_client_online(s, s->wlan)) return size;
+    if (s->softap_client_ssid && s->wlan->mode == Esp32_Mode_SoftAP &&
+        s->wlan->ap_state != Esp32_WLAN__STATE_STA_ASSOCIATED) return size;
+    refresh_bridge_neighbor(s, buf, size);
     /*
      * A 802.3 packet comes from the qemu network. The
      * access points turns it into a 802.11 frame and
@@ -831,14 +869,26 @@ static bool start_softap_clients(Esp32C3WifiState *s, struct mac80211_frame *fra
         g_strlcpy(peer->ssid, ssid, sizeof(peer->ssid));
         memcpy(peer->softap_macaddr, frame->bssid_address, 6);
         memcpy(peer->macaddr, frame->source_address, 6);
-        if (esp32_wifi_client_online(s, peer) &&
-            (peer->ap_state == Esp32_WLAN__STATE_NOT_AUTHENTICATED ||
-             peer->ap_state == Esp32_WLAN__STATE_AUTHENTICATED)) {
+        if (!esp32_wifi_client_online(s, peer)) continue;
+        bool begin = peer->ap_state == Esp32_WLAN__STATE_NOT_AUTHENTICATED ||
+                     peer->ap_state == Esp32_WLAN__STATE_AUTHENTICATED;
+        if (begin || qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) >= peer->management_retry_ns) {
             access_point_info info = { .ssid = peer->ssid,
                 .channel = esp32c3_wifi_channel(s), .sigstrength = -23 };
             memcpy(info.mac_address, peer->ap_macaddr, 6);
-            peer->ap_state = Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED;
-            send_single_frame(s, frame, Esp32_WLAN_create_probe_request(&info));
+            struct mac80211_frame *request = NULL;
+            if (begin || peer->ap_state == Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED) {
+                peer->ap_state = Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED;
+                request = Esp32_WLAN_create_probe_request(&info);
+            } else if (peer->ap_state == Esp32_WLAN__STATE_STA_AUTHENTICATED) {
+                request = Esp32_WLAN_create_authentication_request();
+            } else if (peer->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATING) {
+                request = Esp32_WLAN_create_association_request(&info);
+            }
+            if (request) {
+                peer->management_retry_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + MANAGEMENT_RETRY_NS;
+                send_single_frame(s, frame, request);
+            }
         }
     }
     esp32c3_wifi_set_packet_status(s, ESP32C3_RADIO_PHYA_ACK);
@@ -1001,6 +1051,8 @@ static void handle_interface_frame(Esp32C3WifiState *s, struct mac80211_frame *f
                 s->wlan->ap_state=Esp32_WLAN__STATE_STA_NOT_AUTHENTICATED;
                 send_single_frame(s,frame,Esp32_WLAN_create_deauthentication());
                 send_single_frame(s,frame,Esp32_WLAN_create_authentication_request());
+                s->wlan->ap_state = Esp32_WLAN__STATE_STA_AUTHENTICATED;
+                s->wlan->management_retry_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + MANAGEMENT_RETRY_NS;
                 break;
             case IEEE80211_TYPE_MGT_SUBTYPE_ASSOCIATION_RESP:
                 if(DEBUG) printf("assoc resp\n");
@@ -1031,6 +1083,8 @@ static void handle_interface_frame(Esp32C3WifiState *s, struct mac80211_frame *f
                 DEBUG_PRINT_AP(("Received authentication!\n"));
                 if(frame->data_and_fcs[2]==2) { // response
                     send_single_frame(s,frame,Esp32_WLAN_create_association_request(&dummy_ap));
+                    s->wlan->ap_state = Esp32_WLAN__STATE_STA_ASSOCIATING;
+                    s->wlan->management_retry_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + MANAGEMENT_RETRY_NS;
                 }
                 break;
         }
