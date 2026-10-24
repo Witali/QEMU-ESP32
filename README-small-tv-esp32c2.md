@@ -572,3 +572,20 @@ the corrected model. QTest changes only disposable RAM/descriptors in its own
 CPU-free machine; real factory/native firmware checks use untouched guest code.
 Factory APSTA's GOT_IP handler does not change its application state byte to 2;
 that byte alone cannot prove the presence or absence of STA connectivity.
+
+## Main integration checkpoint, 2026-10-24
+
+The AP-client/DHCP, shared NOR, Windows host-forwarding/migration and classic
+ESP32 SPI compatibility improvements are integrated together. Both Xtensa and
+RISC-V executables were built from the merged model sources. The separate
+flash, network and display/SD regressions, both 60-second C3 OLED boot profiles
+and a real Small TV HTTP request while another AP client lacks DHCP passed.
+See [the pinned integration report](docs/validation/main-merge-validation-20261024.json)
+for source/executable hashes, archived reports and exact qualification limits.
+
+The older APSTA routing fixture sent only an OFFER with xid=0. `FIXED_TEST` in
+`complete_softap` now follows the observed DISCOVER/REQUEST transaction through
+DMA, requires the selected server ACK and rejects an unrelated ACK before
+testing routing. Its failed pre-fix result is retained alongside the passing
+result. DHCP acceptance in the emulator was not weakened. Full CYD RF operation
+and long-duration acceptance of the merged executables remain separate work.

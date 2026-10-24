@@ -1,0 +1,243 @@
+{
+  "schema": "qemu-main-merge-validation-v1",
+  "recorded_at_utc": "2026-10-24T12:10:17.340562+00:00",
+  "passed": true,
+  "all_functionality_verified": false,
+  "compiled_source_commit": "cb9deafd83a6f88275004717875503e52f167ab2",
+  "test_source_commit": "c91ce9b487d7dc1e8b0023f0817becdbd9929b98",
+  "integrated_branches": {
+    "codex/small-tv-ap-clients": "21a8d6dd8ce9589e7ba46e3683d9774c4eb13d72",
+    "codex/hostfwd-backlog": "c4d285f486bbd5d20797eaecd59e35d71d350e6c",
+    "codex/cyd-idf6-compat": "9e320d7ef058de33926a99145fec78de386fb85f"
+  },
+  "merge_resolution": {
+    "dport": "Keep the full clock/reset model from hostfwd, including documented reset values.",
+    "trace": "Keep c_filename escaping and fs.name(item) from the tested AP-client branch.",
+    "attributes": "Keep both the slirp diff rule and exact-byte QTest helper rules."
+  },
+  "excluded_backup": {
+    "branch": "codex/recover-wifi-link-pre-amend",
+    "reason": "Implementation and tests equal the already merged 962cda7a6f version; only the obsolete QMP path in its README differs."
+  },
+  "executables": {
+    "xtensa": {
+      "path": "build/qemu-system-xtensa.exe",
+      "sha256": "6e673939124187d0e863f89cc3d11552c024f8c288fa01708eeb6c9aeeef4329"
+    },
+    "riscv32": {
+      "path": "build-riscv32/qemu-system-riscv32.exe",
+      "sha256": "2df903276e66afe0095ad19afd6d8b7201bcca3fbda073f3edb958934aef0001"
+    }
+  },
+  "model_source_sha256": {
+    "hw/block/m25p80.c": "42b9a7cb23d653020c2882a9c0142792c9d69a9ea40976e1d5f825bb487accce",
+    "hw/misc/esp32_dport.c": "dacefb1662dfbc7e8610a7911dd8bd0d28170ed54080826db0c6d467ea26ddc3",
+    "hw/misc/esp32c2_cache.c": "ada0adc7279a50d0a9220eb5214eb452ef15f0b80373e367678489a982cd1c3d",
+    "hw/misc/esp32c3_cache.c": "3cfac902f9b53a81bc9e353b44e2f95f48df68c1de1b6a062bb6921a9778ceb8",
+    "hw/net/esp32c2_clock.c": "fb0895a2bb4edd257da42e8b74cfe628c8886bead83e9dc887b86843def1d39f",
+    "hw/net/esp32c3_wifi.c": "e1a93b5c9bd6b1ef20900a39331185db4136e62b011ba4991c13a916cceeb2f4",
+    "hw/net/esp32c3_wifi_80211.h": "c464f5e718f072303bd0ba0a803d5efc3c39ad18a9a81da6da75c21b3878c5ac",
+    "hw/net/esp32c3_wifi_ap.c": "4f39c428b6da51c6785bbb1c1e13092ac978a1f78adebb4f9e7aa8da1ac2f89d",
+    "hw/net/esp32c3_wifi_dhcp.c": "4a35c950b2ce24d9a25ea4dc5a759e7db5d6b186c52d6af2a5d689a7248b3f4d",
+    "hw/net/esp32c3_wifi_dhcp.h": "31772499af90e910fd66d62426de35387110c8db65fda94f5a169d66c17cf60e",
+    "hw/net/esp32c3_wifi_fault.c": "839b763614479f712b2a53950bb889ad6f5a81f78cae9e8525ed04b89cb7a8b2",
+    "hw/net/esp32c3_wifi_fault.h": "f24f98421146cd7066438515124401b0c5fa33aa3708df8d7a90e3c1fdc3adaa",
+    "hw/net/esp32c3_wifi_frame.c": "059a9d5121b17c8f0c3f7619359f34913f984db52174aa6a199db93d6b1b88e9",
+    "hw/net/esp32c3_wifi_interface.c": "0d08b53a5a663318ee858540e45e6173fc1597e94e1f938179b32522cd4ff5b9",
+    "hw/net/esp32c3_wifi_interface.h": "0f15e2ac25e15c9cc7f30ed542ed953f47b861047d9fa0efc097657d7b87122e",
+    "hw/net/meson.build": "72b6a94430eecce1f6d8962c7753352e40f073f2aa66ada881bb9c9a0f1f019f",
+    "hw/riscv/esp32c2.c": "16f0533370f0a2baf35269d5f67a691c4cce234077f08fe02a0d780598ae0b80",
+    "hw/ssi/esp32_spi.c": "17e615099f10b035158a7da039c250070890bef2cac9a372aecca301690a375b",
+    "hw/xtensa/esp32.c": "820de5d5bb015693f64c074e007152c77c2b8d36c28b073a1fd47a94034b0178",
+    "include/hw/misc/esp32_dport.h": "0bf5775017c5e48e2aea824a7fcd5b0512d762caa0762a185ac81f4f0846ad70",
+    "include/hw/net/esp32c3_wifi.h": "9d734705da701d149ee6513bcb4207a5089459fd13b1f6ab1a18a11d73f3f3c8",
+    "include/hw/ssi/esp32_spi.h": "ab25252111bdb3da962eecfef959b6164b4dc40c357c052fe18a3fddc964dd4e",
+    "meson.build": "62eb7b2692131d4b72341b31b73cfade0661969c1b122187c1e7aff3ba5aa7d0",
+    "migration/file.c": "bac20f85e40516c87e7ac126018ff1461faff2cb70a198b50f38b384b1f338dd",
+    "net/slirp.c": "54c1fbf15342583379ecaaa639db5d69c5ef82bd152c6c53aa56ef6e409499c3",
+    "scripts/tracetool/__init__.py": "247afb8885692584529104d06cd851f0f4f1dfe62dd3a7eb661f7de525a4ddfa",
+    "scripts/tracetool/backend/ftrace.py": "cd0fd7976e6add902e3ca054dec1f5a9959b5a403be740404882375cf9264758",
+    "scripts/tracetool/backend/log.py": "1f5e60d5627060489c67edc831366ee335775067955e22a8cd59cfd52ad410d8",
+    "scripts/tracetool/backend/syslog.py": "f6f088cee5cb25d51f3b0a006a5eab72b079e201f4694b36dd8fba2ddcb10b2c",
+    "subprojects/.gitignore": "d651d2e8cd782ae938881f436690c2eadd188add24421b5674e49026f16122c4",
+    "subprojects/packagefiles/slirp-win32-hostfwd-ports.diff": "9b6bb103f02ff69c5393716263b32b804e0109b7214743919c47d761fdda02fe",
+    "subprojects/packagefiles/slirp-win32-listen.diff": "b6cb5d61ca25b97da9fc3a2b8f29db3c8663da93a26bd0bd715536ec5c22b3cd",
+    "subprojects/packagefiles/slirp-win32-subproject.diff": "ef199d3932f3839ef3d0f6e12afc6ff3c4d8139796cc039a548ebef22c9916a6",
+    "subprojects/slirp-win32.wrap": "748f45633f7e29ef423a8fd9f43a650323f476d92fb4c7c854baa05f6f46c652",
+    "trace/meson.build": "bd24e901735e013e0c0b7145c5a0897b651f7484a1590e01703b4943a3ade2bc"
+  },
+  "reports": [
+    {
+      "name": "dhcp",
+      "path": "docs/validation/main-merge-20261024/dhcp.json.gz",
+      "sha256": "3d90fd43c8bcb6bd8ead802f1ee16b0cbafabee58e83f5accfcc99e5da404a93",
+      "raw_sha256": "dc02925e3e87f631221ef18acc790a1f22126959ee996ddc13562bfc80ca564f",
+      "bytes": 3568,
+      "case_or_group_count": 351,
+      "outcome": "passed"
+    },
+    {
+      "name": "trace-paths",
+      "path": "docs/validation/main-merge-20261024/trace-paths.json.gz",
+      "sha256": "ba213a1f4f0acc926a22f50ba5b032f04c35608d198cfd9ddfb4f8a86a0bd8d3",
+      "raw_sha256": "882764391798c54278e0a481f1b80ffedaeb2586f7555cf9ec5ae09466013d54",
+      "bytes": 446,
+      "case_or_group_count": 12,
+      "outcome": "passed"
+    },
+    {
+      "name": "slirp-ports",
+      "path": "docs/validation/main-merge-20261024/slirp-ports.json.gz",
+      "sha256": "3b7076bb102c3165f50d77ebd82ae9036c28dd10ab0792b40b22117ff2ef61df",
+      "raw_sha256": "751df18246c2c81cd21c9c99f7c9cd14b924a054a9899370bf1c2d39f458e9a0",
+      "bytes": 5157,
+      "case_or_group_count": 10,
+      "outcome": "passed"
+    },
+    {
+      "name": "phy-clocks",
+      "path": "docs/validation/main-merge-20261024/phy-clocks.json.gz",
+      "sha256": "49432e6d31dab101e94efc711e452c43b0c46cec61ef40f436984aa95ee0746b",
+      "raw_sha256": "0b5b08eb31755e945892ad50f3e0acf02e33dee5a653845bf22c0832c26db338",
+      "bytes": 884,
+      "case_or_group_count": 4,
+      "outcome": "passed"
+    },
+    {
+      "name": "binary-migration",
+      "path": "docs/validation/main-merge-20261024/binary-migration.json.gz",
+      "sha256": "fff68a3e3e04506406a1fb7688dadec97c8815e720b279ba40c0a19fbf88e6fa",
+      "raw_sha256": "68d38ba29b714cd78ae49f2f7d24301d1cc1b874e01a5e0b0137c4cfd248d14d",
+      "bytes": 1097,
+      "case_or_group_count": null,
+      "outcome": "passed"
+    },
+    {
+      "name": "slirp-migration",
+      "path": "docs/validation/main-merge-20261024/slirp-migration.json.gz",
+      "sha256": "b90f176e765c0efee14c73502a3d8e062b5e1ec72c262574ae19497a7bd22f5d",
+      "raw_sha256": "3d90b19c35b288fa10ade5032c179859867455db3060574f9f0f9c3579dbc132",
+      "bytes": 1364,
+      "case_or_group_count": null,
+      "outcome": "passed"
+    },
+    {
+      "name": "esp32-idf6",
+      "path": "docs/validation/main-merge-20261024/esp32-idf6.json.gz",
+      "sha256": "993f4d405fc8bd7ade6d54f5a7b1834dfcd0dc5e2966aefa72645a99021b74f8",
+      "raw_sha256": "7a1740423a12fba9e188b907931cd7cfcae259d82572f75bc541b3507b07eaad",
+      "bytes": 4235,
+      "case_or_group_count": 274,
+      "outcome": "passed"
+    },
+    {
+      "name": "input-delay-0",
+      "path": "docs/validation/main-merge-20261024/input-delay-0.json.gz",
+      "sha256": "3760f9c7a65242441af0c670a483baf1e62761ae87bd23a9c92b532c58f20df2",
+      "raw_sha256": "c6c1f08f3a53d8667511ae929fa15e30698c9c4da030ee19a797224d7f3edd43",
+      "bytes": 4808,
+      "case_or_group_count": 391,
+      "outcome": "passed"
+    },
+    {
+      "name": "input-delay-25",
+      "path": "docs/validation/main-merge-20261024/input-delay-25.json.gz",
+      "sha256": "88876c9f61c288612580168de7019a1ae840bdb7162ffeb8a36e89287c00e64a",
+      "raw_sha256": "cd5bc4c91d96944d5a23ab16161bda8ed33fba0afe977255566f2e681cca75a5",
+      "bytes": 5141,
+      "case_or_group_count": 391,
+      "outcome": "passed"
+    },
+    {
+      "name": "flash",
+      "path": "docs/validation/main-merge-20261024/flash.json.gz",
+      "sha256": "a54667233c4e731245db48ad47d5019e50787f9ceb3d878e8d62c97103b0d596",
+      "raw_sha256": "8a43bdb3d5a2148258c69eef93123a767e6e8a22c2c8b83b8198ce6692698113",
+      "bytes": 278,
+      "case_or_group_count": 11,
+      "outcome": "passed"
+    },
+    {
+      "name": "wifi-services",
+      "path": "docs/validation/main-merge-20261024/wifi-services.json.gz",
+      "sha256": "cb98b8a01e81b8b58312389dd58adc6aa082c5382a3642a4c48ccb267ee19a95",
+      "raw_sha256": "f7cfe2fb31b0e3f5eb5be85570df1acff251a06037ba40aeeac633590ad56fe7",
+      "bytes": 271,
+      "case_or_group_count": 12,
+      "outcome": "passed"
+    },
+    {
+      "name": "apsta-before-fixture-fix",
+      "path": "docs/validation/main-merge-20261024/apsta-before-fixture-fix.json.gz",
+      "sha256": "4005b8111056cc403ec6202f47670c0abcd664671b7f7c365558c2fb4cb14ecd",
+      "raw_sha256": "46a052566da3f71ff703a1c5668af2686606ebf6d8afc7bc8aecf514a232a68b",
+      "bytes": 440,
+      "case_or_group_count": 5,
+      "outcome": "historical_fixture_failure"
+    },
+    {
+      "name": "apsta",
+      "path": "docs/validation/main-merge-20261024/apsta.json.gz",
+      "sha256": "792b69d121e6ccfd308881148b8258004f3b70592308fb6007dd9f73214fd852",
+      "raw_sha256": "5627ed20d907df60cd5fb9fce065522acf00ab79596cd6669359b33c0daf0ab3",
+      "bytes": 351,
+      "case_or_group_count": 5,
+      "outcome": "passed"
+    },
+    {
+      "name": "modules",
+      "path": "docs/validation/main-merge-20261024/modules.json.gz",
+      "sha256": "49e578f1265c340b459b10a1618008552a7f5c58a13dc9df62fe5aa58dc98a39",
+      "raw_sha256": "91acefdfd0637b044f78ac4cd0c822c86e248003b1f7aa92cfac0d963d5f8fcc",
+      "bytes": 479,
+      "case_or_group_count": 7,
+      "outcome": "passed"
+    },
+    {
+      "name": "c3-boot",
+      "path": "docs/validation/main-merge-20261024/c3-boot.json.gz",
+      "sha256": "9c8b87928199f7f591814617dc02e500ad215530af8c4e4c7388ef5c57082da9",
+      "raw_sha256": "a2868acf7fabdff9a0d073a3dd6c1b4ed9315b029e0b7560e3045e76b1f1e46c",
+      "bytes": 875,
+      "case_or_group_count": 2,
+      "outcome": "passed"
+    },
+    {
+      "name": "native-stalled-peer",
+      "path": "docs/validation/main-merge-20261024/native-stalled-peer.json.gz",
+      "sha256": "357ec6d75360c9794734b6fae7925be6550856bb1e218273cfdabd222ba238c9",
+      "raw_sha256": "2ab13415b1f34e3c8246ce60a5c6edc72e215cc6f5a082bad755ef5212d46ba2",
+      "bytes": 10426,
+      "case_or_group_count": null,
+      "outcome": "passed"
+    }
+  ],
+  "additional_unittest_observations": [
+    {
+      "command": "python -B -X utf8 tools/test_esp_legacy_checks.py",
+      "tests": 5,
+      "exit_code": 0
+    },
+    {
+      "command": "python -B -X utf8 -m unittest discover -s tests -p small_tv_display_test.py",
+      "tests": 12,
+      "exit_code": 0
+    }
+  ],
+  "apsta_fixture_fix": "Observe DISCOVER xid and REQUEST address/server through DMA; send OFFER and matching ACK. A deliberately wrong-xid ACK must leave the client waiting. No model state injection or DHCP implementation relaxation.",
+  "build_commands": [
+    "ninja -C build -j 4 qemu-system-xtensa.exe",
+    "ninja -C build-riscv32 -j 4 qemu-system-riscv32.exe"
+  ],
+  "build_log_sha256": {
+    "xtensa-build.log": "d97ded04703f407d512363c2f849b9a8f5ef98b9df234017ae796ab9dcbbd069",
+    "riscv32-build.log": "7d683d741446d87bb16ffc67bd42d956e69cc869dde85871dbd0fa55da693302"
+  },
+  "limitations": [
+    "QTest exercises synthetic paused machines; C3 boot checks last 60 wall seconds per profile.",
+    "The native HTTP check holds one real virtual AP client in DHCP while its peer serves HTTP; it does not qualify all network lifecycle cases.",
+    "Full CYD RF calibration and networking remain unqualified; the existing IDF6 checkpoint still documents unsupported RF MMIO 0x60033c00.",
+    "No physical hardware acceptance, 24-hour qualification of these newly built executables, or complete ESP migration claim.",
+    "The existing H10 uses its separately pinned clients-v8 executable; it was not restarted or replaced by this merge."
+  ]
+}
