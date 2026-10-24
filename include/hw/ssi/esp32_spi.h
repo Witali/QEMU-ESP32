@@ -23,6 +23,8 @@ typedef struct Esp32SpiState {
     uint32_t status_reg;
     uint32_t ctrl1_reg;
     uint32_t ctrl2_reg;
+    uint32_t clock_reg;
+    uint32_t input_delay_ns;
     uint32_t user_reg;
     uint32_t user1_reg;
     uint32_t user2_reg;
@@ -57,11 +59,20 @@ REG32(SPI_CMD, 0x00)
 
 REG32(SPI_ADDR, 0x04)
 REG32(SPI_CTRL, 0x08)
+    FIELD(SPI_CTRL, FREAD_QIO, 24, 1)
+    FIELD(SPI_CTRL, FREAD_DIO, 23, 1)
+    FIELD(SPI_CTRL, FREAD_QUAD, 20, 1)
+    FIELD(SPI_CTRL, FREAD_DUAL, 14, 1)
+    FIELD(SPI_CTRL, FASTRD_MODE, 13, 1)
 REG32(SPI_STATUS, 0x10)
     FIELD(SPI_STATUS, STATUS, 0, 16)
 
 REG32(SPI_CTRL1, 0x0c)
 REG32(SPI_CTRL2, 0x14)
+REG32(SPI_CLOCK, 0x18)
+    FIELD(SPI_CLOCK, CLKCNT_N, 12, 6)
+    FIELD(SPI_CLOCK, CLKDIV_PRE, 18, 13)
+    FIELD(SPI_CLOCK, CLK_EQU_SYSCLK, 31, 1)
 REG32(SPI_USER, 0x1C)
     FIELD(SPI_USER, COMMAND, 31, 1)
     FIELD(SPI_USER, ADDR, 30, 1)
