@@ -1560,6 +1560,8 @@ static void decode_new_cmd(Flash *s, uint32_t value)
             s->data[0] = (!!s->quad_enable) << 1;
             s->pos = 0;
             s->len = 1;
+            /* Status Register-2 repeats until CS rises. */
+            s->data_read_loop = true;
             s->state = STATE_READING_DATA;
             break;
         default:
