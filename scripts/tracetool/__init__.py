@@ -30,6 +30,12 @@ def error(*lines):
     sys.exit(1)
 
 
+def c_filename(filename):
+    """Escape a filename embedded inside a generated C string or #line token."""
+    import json
+    return json.dumps(str(filename), ensure_ascii=False)[1:-1]
+
+
 out_lineno = 1
 out_filename = '<none>'
 out_fobj = sys.stdout
@@ -55,7 +61,7 @@ def out(*lines, **kwargs):
     for l in lines:
         kwargs['out_lineno'] = out_lineno
         kwargs['out_next_lineno'] = out_lineno + 1
-        kwargs['out_filename'] = out_filename
+        kwargs['out_filename'] = c_filename(out_filename)
         output.append(l % kwargs)
         out_lineno += 1
 

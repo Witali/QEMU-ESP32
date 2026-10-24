@@ -14,7 +14,7 @@ __email__      = "stefanha@redhat.com"
 
 import os.path
 
-from tracetool import out
+from tracetool import out, c_filename
 
 
 PUBLIC = True
@@ -43,7 +43,7 @@ def generate_h(event, group):
         '    }',
         cond=cond,
         event_lineno=event.lineno,
-        event_filename=os.path.relpath(event.filename),
+        event_filename=c_filename(os.path.relpath(event.filename)),
         name=event.name,
         fmt=event.fmt.rstrip("\n"),
         argnames=argnames)

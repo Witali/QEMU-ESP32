@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "all_functionality_verified": false,
+  "board_boot_acceptance": false,
+  "source_parent": "0860e568d4ccc3f74a0e4a0e46f25b1fb7a0939b",
+  "sources_sha256": {
+    "trace/meson.build": "ef6c90aa2bc53e23d07b90723d7bda6aa52dadd07c11d723bd63be77581b79c1",
+    "scripts/tracetool/__init__.py": "e8dfb1744bcb90c4152904b9705c99dc99ad813a1de5471d5a1e5cb39442823f",
+    "scripts/tracetool/backend/log.py": "180c9b4b08b0aa60b1d5e080ce788534b4e45361b4cd6132bd1d5c76b3b9d382",
+    "scripts/tracetool/backend/syslog.py": "5896d7ddb877e6088cb150a743f787884755b8b3625209d750fedee4de0f1164",
+    "scripts/tracetool/backend/ftrace.py": "348799a86630cd2f789ef0554a6b08ea27adc839dddbc5249ae13253e282bdff",
+    "tests/test_tracetool_paths.py": "4222e6bc99f42f56e390c3f2032c0a3ca284f5c5f819746796896a82fc5e68d6",
+    "docs/WINDOWS_TRACE_PATHS.md": "1017ee0a55519fadcbeccb06d47a0111150094db996454a558111ffed1ef179e",
+    "tools/verify_trace_path_evidence.py": "8369b662ee3bb2b318ec99d7129aa06474c189cc9192e620c2ed13d20ea4aabf"
+  },
+  "unchanged_models_sha256": {
+    "include/hw/net/esp32c3_wifi.h": "b7b12597e884afdd9a8d2eed3c629086adf679b11893338905ba04639a19c7db",
+    "hw/net/esp32c3_wifi.c": "20221c5247b148b6fe7d641c25a0be0f1d47f61e330ac23533f9807082269c75",
+    "hw/net/esp32c3_wifi_ap.c": "f11ee8a03d858f08227456e0d42af5d42e1a5cabad306d57b930e4b105ed2713",
+    "hw/net/esp32c3_wifi_interface.c": "7a6305161ef2f6c419b41887955eca0d43c2190cab3c2071659e48d39c4dd2c8",
+    "hw/net/esp32c3_wifi_frame.c": "3936138dc0d3cb8423a91592bef43c72118caa74c9e7137c59dc21e5b5125cb6",
+    "hw/block/m25p80.c": "26d02557f5d25e049bf598090d43a0d35d9b205b57682fe8db8d6c6501c31b00",
+    "hw/misc/esp32c2_cache.c": "b7f500fb57aa0bc4dfb18c6267bc56da8215a9d37e28f6045805712f90f8858d",
+    "hw/misc/esp32c3_cache.c": "3d6d80a919d78dd0277e0729ee2bf90d2b2dfa53e09754966ddfa00ca5963bdb"
+  },
+  "binaries": {
+    "riscv32": {
+      "file": "build/baseline-riscv32.exe",
+      "sha256": "4e283d9b197d3716bda77a4da54ec92da8e83b352b190ad546e7f1060559237e",
+      "bytes": 75282790,
+      "version": "QEMU emulator version 9.2.2 (Small TV AP clients baseline)\nCopyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers\n",
+      "machines": "Supported machines are:\nesp32c2              Espressif ESP32-C2 Small TV (experimental)\nesp32c3              Espressif ESP32-C3 machine\nnone                 empty machine\nopentitan            RISC-V Board compatible with OpenTitan\nsifive_e             RISC-V Board compatible with SiFive E SDK\nsifive_u             RISC-V Board compatible with SiFive U SDK\nspike                RISC-V Spike board (default)\nvirt                 RISC-V VirtIO board\n"
+    },
+    "xtensa": {
+      "file": "build/baseline-xtensa.exe",
+      "sha256": "821d98070aa131ccdc5c7ccd87336c90c13a7c205dfe991404ed242f9da0f0e1",
+      "bytes": 72638027,
+      "version": "QEMU emulator version 9.2.2 (Small TV AP clients baseline)\nCopyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers\n",
+      "machines": "Supported machines are:\nesp32                Espressif ESP32 machine\nesp32s3              Espressif ESP32S3 machine\nkc705                kc705 EVB (dc232b)\nkc705-nommu          kc705 noMMU EVB (de212)\nlx200                lx200 EVB (dc232b)\nlx200-nommu          lx200 noMMU EVB (de212)\nlx60                 lx60 EVB (dc232b)\nlx60-nommu           lx60 noMMU EVB (de212)\nml605                ml605 EVB (dc232b)\nml605-nommu          ml605 noMMU EVB (de212)\nnone                 empty machine\nsim                  sim machine (dc232b) (default)\nvirt                 virt machine (dc232b)\n"
+    }
+  },
+  "compiler_version": "GCC16.1.0/MSYS2",
+  "meson_version": "1.5.0",
+  "generator_python": "3.14.6",
+  "test_python": "3.12",
+  "test_cases": 12,
+  "unsafe_controls": 6,
+  "full_build_status": 0,
+  "raw": {
+    "file": "windows-trace-paths-20261024.json.gz",
+    "sha256": "ad6612fa74ab24427ca757efdffe8ee856df786da1b1f785722de1ebb13ab7e6"
+  },
+  "scope": "Fresh Windows RISC-V/Xtensa builds and C #line/runtime filename checks; no board boot/RF/network acceptance"
+}
