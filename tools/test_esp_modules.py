@@ -319,15 +319,23 @@ def check_profiles():
 def main():
     global options, base
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--soc', choices=('all', 'esp32'), default='all', help='Select all checks or only ESP32 dual-host SPI and legacy CYD checks')
     parser.add_argument('--qemu-riscv', default=str(r / 'bin/qemu-system-riscv32.exe'))
     parser.add_argument('--qemu-xtensa', default=str(r / 'bin/qemu-system-xtensa.exe'))
-    parser.add_argument('--c2-rom-dir', required=True, help='Directory containing genuine esp32c2-rev200-rom.bin')
+    parser.add_argument('--c2-rom-dir', help='Directory containing genuine esp32c2-rev200-rom.bin (required for --soc=all)')
     parser.add_argument('--state-directory', default=str(base))
     options = parser.parse_args()
+    if options.soc == 'all' and not options.c2_rom_dir:
+        parser.error('--c2-rom-dir is required when --soc=all')
     base = Path(options.state_directory).resolve()
     base.mkdir(parents=True, exist_ok=True)
-    checks = {'profile_validation': check_profiles(), 'c2_shared_spi': test_spi(), 'c3_shared_spi': test_spi('esp32c3'), 'esp32_dual_spi': test_spi('esp32', True), 'c2_i2c': test_i2c('esp32c2'), 'c3_i2c': test_i2c('esp32c3'), 'legacy_cyd_mmio': test_legacy_cyd()}
-    report = {'passed': True, 'checks': checks, 'qemu_sha256': {'riscv32': sha(Path(options.qemu_riscv)), 'xtensa': sha(Path(options.qemu_xtensa))}}
+    if options.soc == 'all':
+        checks = {'profile_validation': check_profiles(), 'c2_shared_spi': test_spi(), 'c3_shared_spi': test_spi('esp32c3'), 'esp32_dual_spi': test_spi('esp32', True), 'c2_i2c': test_i2c('esp32c2'), 'c3_i2c': test_i2c('esp32c3'), 'legacy_cyd_mmio': test_legacy_cyd()}
+        qemu_sha256 = {'riscv32': sha(Path(options.qemu_riscv)), 'xtensa': sha(Path(options.qemu_xtensa))}
+    else:
+        checks = {'esp32_dual_spi': test_spi('esp32', True), 'legacy_cyd_mmio': test_legacy_cyd()}
+        qemu_sha256 = {'xtensa': sha(Path(options.qemu_xtensa))}
+    report = {'passed': True, 'soc': options.soc, 'checks': checks, 'qemu_sha256': qemu_sha256}
     save_json(base / 'modular-report.json', report)
     print(json.dumps(report, indent=2))
 if __name__ == '__main__':
