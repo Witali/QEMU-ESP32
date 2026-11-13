@@ -62,6 +62,19 @@ static void esp32_i2s_dac_set_active(Esp32I2sDacState *s, bool active)
     }
 }
 
+static void esp32_i2s_dac_start(Esp32I2sDacState *s)
+{
+    /* The DMA link can be armed before the transmitter is enabled. */
+    if (!s->link_running ||
+        !(s->regs[I2S_CONF_REG / 4] & I2S_CONF_TX_START)) {
+        return;
+    }
+
+    esp32_i2s_dac_set_active(s, true);
+    s->dma_deadline_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1;
+    timer_mod(s->dma_timer, s->dma_deadline_ns);
+}
+
 static void esp32_i2s_dac_stop(Esp32I2sDacState *s)
 {
     s->link_running = false;
@@ -221,13 +234,18 @@ static void esp32_i2s_dac_write(void *opaque, hwaddr address,
         s->regs[I2S_INT_RAW_REG / 4] &= ~val;
         esp32_i2s_dac_update_irq(s);
         break;
-    case I2S_CONF_REG:
+    case I2S_CONF_REG: {
+        uint32_t old = s->regs[address / 4];
+
         s->regs[address / 4] = val;
         if ((val & I2S_CONF_TX_RESET) ||
-            !(val & I2S_CONF_TX_START)) {
+            ((old & I2S_CONF_TX_START) && !(val & I2S_CONF_TX_START))) {
             esp32_i2s_dac_stop(s);
+        } else if (!(old & I2S_CONF_TX_START) && (val & I2S_CONF_TX_START)) {
+            esp32_i2s_dac_start(s);
         }
         break;
+    }
     case I2S_LC_CONF_REG:
         s->regs[address / 4] = val;
         if (val & I2S_LC_OUT_RESET) {
@@ -243,10 +261,7 @@ static void esp32_i2s_dac_write(void *opaque, hwaddr address,
             s->current_descriptor =
                 DMA_DESCRIPTOR_PREFIX | (val & I2S_OUT_LINK_ADDR_MASK);
             s->link_running = true;
-            esp32_i2s_dac_set_active(s, true);
-            s->dma_deadline_ns =
-                qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1;
-            timer_mod(s->dma_timer, s->dma_deadline_ns);
+            esp32_i2s_dac_start(s);
         }
         break;
     default:
